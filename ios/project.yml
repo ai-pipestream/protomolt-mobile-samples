@@ -1,0 +1,23 @@
+name: CourtSearch
+options:
+  bundleIdPrefix: ai.pipestream.samples
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  CourtSearchKit:
+    path: CourtSearchKit
+targets:
+  CourtSearch:
+    type: application
+    platform: iOS
+    sources: [CourtSearch]
+    dependencies:
+      - package: CourtSearchKit
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Court Search
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package court.v1;
+
+// One court opinion as the sample indexes it. The engine plans its index from
+// this descriptor: `id` becomes the document id, `body` and `title` become BM25
+// columns, and `embedding` becomes the dense vector.
+message Opinion {
+  string id = 1;
+  string title = 2;
+  string body = 3;
+  repeated float embedding = 4;
+}
