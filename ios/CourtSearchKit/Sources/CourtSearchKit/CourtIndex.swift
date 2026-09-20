@@ -8,24 +8,54 @@ public struct Opinion: Decodable, Sendable, Identifiable {
     public let title: String
     public let body: String
     public let sourceURI: String
+    public let dateFiled: String
+    public let docketNumber: String
+    public let court: String
+    public let judges: String
+    public let author: String
+    public let status: String
     public let embedding: [Float]
 
     enum CodingKeys: String, CodingKey {
-        case id = "doc_id", title, body, sourceURI = "source_uri", embedding
+        case id = "doc_id", title, body, sourceURI = "source_uri", dateFiled = "date_filed"
+        case docketNumber = "docket_number", court, judges, author, status, embedding
     }
 }
 
 public struct SearchHit: Sendable, Identifiable {
     public let opinion: Opinion
     public let score: Float
+    /// Present on keyword hits only: the engine cuts snippets for a lexical
+    /// selection and refuses the request on any other shape.
+    public let snippet: Snippet?
     public var id: String { opinion.id }
+}
+
+/// What the engine reported about one query, plus the app-measured round trip.
+public struct QueryStats: Sendable {
+    /// The route as the engine names it: `bm25_search`, `search`.
+    public let route: String
+    public let engineMilliseconds: Double
+    public let selectionMilliseconds: Double
+    /// Wall time around the call: protobuf encode/decode and the FFI hop included.
+    public let roundTripMilliseconds: Double
+    public let hits: Int
+    public let segments: Int
+    public let shards: Int
+}
+
+public struct SearchResult: Sendable {
+    public let hits: [SearchHit]
+    public let stats: QueryStats
 }
 
 public struct IndexStats: Sendable {
     public let documents: Int
+    public let vectorDimensions: Int
     public let bytesOnDisk: Int64
     /// Nil when the index already existed and nothing was ingested this launch.
     public let ingestSeconds: Double?
+    public let planFingerprint: String
 }
 
 /// The court sample's private on-device index: plan, mapped ingest, flush, and
@@ -75,35 +105,49 @@ public actor CourtIndex {
         open.shards = [shard]
 
         engine = try SearchEngine(open: open, create: !exists)
+        let descriptorSet = try Self.resource("court", "desc")
+        // Planning is deterministic and cheap; doing it on every open keeps the
+        // fingerprint on hand for the engine panel, not only on first launch.
+        let fingerprint = try Self.plan(descriptorSet, engine).fingerprint
         var seconds: Double?
         if !exists {
             let start = Date()
-            try Self.ingest(opinions, into: engine)
+            try Self.ingest(opinions, descriptorSet: descriptorSet, fingerprint: fingerprint, into: engine)
             seconds = Date().timeIntervalSince(start)
         }
-        stats = IndexStats(documents: opinions.count, bytesOnDisk: Self.bytes(under: directory), ingestSeconds: seconds)
+        stats = IndexStats(documents: opinions.count, vectorDimensions: opinions.first?.embedding.count ?? 0,
+                           bytesOnDisk: Self.bytes(under: directory), ingestSeconds: seconds, planFingerprint: fingerprint)
     }
 
-    /// BM25 over opinion bodies.
-    public func search(text: String, limit: Int = 5) throws -> [SearchHit] {
+    /// BM25 over opinion bodies, with type-ahead: the last word is also sent as a
+    /// prefix. The term dictionary holds stems, so the text leg covers a finished
+    /// word ("sentencing" → "sentenc") and the prefix leg an unfinished one
+    /// ("hab" → "habeas"); the engine scores the union.
+    public func search(text: String, limit: Int = 5) throws -> SearchResult {
         var lexical = Ai_Protomolt_Search_V1_LexicalQuery()
         lexical.text = text
         lexical.analysis = Self.bodySpec
+        if let last = text.split(whereSeparator: \.isWhitespace).last, text.last?.isWhitespace == false {
+            var prefix = Ai_Protomolt_Search_V1_TermPrefix()
+            prefix.prefix = String(last)
+            prefix.maxExpansions = 32
+            lexical.prefixes = [prefix]
+        }
         var search = Ai_Protomolt_Search_V1_SearchQuery()
         search.id = "lexical"
         search.lexical = lexical
-        return try run(search, limit: limit)
+        return try run(search, limit: limit, snippets: true)
     }
 
     /// Nearest neighbours of a stored opinion's own vector. Phase 0 has no
     /// on-device embedder, so queries are documents, as in the Java sample.
-    public func neighbours(of opinion: Opinion, limit: Int = 5) throws -> [SearchHit] {
+    public func neighbours(of opinion: Opinion, limit: Int = 5) throws -> SearchResult {
         var dense = Ai_Protomolt_Search_V1_DenseQuery()
         dense.vector = opinion.embedding
         var search = Ai_Protomolt_Search_V1_SearchQuery()
         search.id = "dense"
         search.dense = dense
-        return try run(search, limit: limit)
+        return try run(search, limit: limit, snippets: false)
     }
 
     public func close() throws {
@@ -111,7 +155,7 @@ public actor CourtIndex {
         try engine.close()
     }
 
-    private func run(_ search: Ai_Protomolt_Search_V1_SearchQuery, limit: Int) throws -> [SearchHit] {
+    private func run(_ search: Ai_Protomolt_Search_V1_SearchQuery, limit: Int, snippets: Bool) throws -> SearchResult {
         var selection = Ai_Protomolt_Search_V1_SelectionQuery()
         selection.search = search
         var request = Ai_Protomolt_Search_V1_QueryRequest()
@@ -119,27 +163,78 @@ public actor CourtIndex {
         request.k = UInt32(limit)
         request.selectionK = UInt32(limit)
         request.selection = selection
+        request.profile = true
+        if snippets {
+            var highlight = Ai_Protomolt_Search_V1_HighlightSpec()
+            highlight.maxSnippets = 1
+            highlight.maxChars = 180
+            highlight.mode = .window
+            request.highlight = highlight
+        }
+        let start = DispatchTime.now().uptimeNanoseconds
+        let response = try engine.query(request)
+        let roundTrip = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6
+
         // Row ids are assigned in ingest order from first_id 0, so a hit's
         // doc_id indexes the fixture directly.
-        return try engine.query(request).hits.compactMap { hit in
+        let hits: [SearchHit] = response.hits.compactMap { hit in
             let row = Int(hit.docID)
             guard opinions.indices.contains(row) else { return nil }
-            return SearchHit(opinion: opinions[row], score: hit.score)
+            let opinion = opinions[row]
+            return SearchHit(opinion: opinion, score: hit.score,
+                             snippet: hit.snippets.first.map { Self.snippet($0, bodyLength: opinion.body.utf16.count) })
         }
+        let profile = response.profile
+        return SearchResult(hits: hits, stats: QueryStats(
+            route: response.executed, engineMilliseconds: Double(profile.totalMs),
+            selectionMilliseconds: Double(profile.selectionMs), roundTripMilliseconds: roundTrip,
+            hits: hits.count, segments: Int(profile.segmentsTotal), shards: Int(profile.shardsTotal)))
     }
 
-    private static func ingest(_ opinions: [Opinion], into engine: SearchEngine) throws {
-        let descriptorSet = try resource("court", "desc")
+    /// Slices the engine's snippet at its highlight bounds. Offsets are UTF-16
+    /// code units of the ORIGINAL text; subtracting `start` makes them relative.
+    private static func snippet(_ source: Ai_Protomolt_Search_V1_Snippet, bodyLength: Int) -> Snippet {
+        let units = Array(source.text.utf16)
+        var runs: [Snippet.Run] = []
+        var cursor = 0
+        func append(_ range: Range<Int>, _ highlighted: Bool) {
+            guard !range.isEmpty, let text = String(utf16CodeUnits: Array(units[range]), count: range.count) as String? else { return }
+            // Collapse inside each run, keeping one space where a run began or ended on whitespace.
+            let collapsed = text.collapsingWhitespace
+            guard !collapsed.isEmpty || !runs.isEmpty else { return }
+            let lead = text.first?.isWhitespace == true && !runs.isEmpty ? " " : ""
+            let trail = text.last?.isWhitespace == true ? " " : ""
+            // The whitespace tokenizer's tokens keep their punctuation ("immunity."),
+            // so a mark can end on a full stop. The highlighter covers the word only.
+            let word = highlighted ? String(collapsed.reversed().drop(while: { $0.isPunctuation }).reversed()) : collapsed
+            runs.append(Snippet.Run(text: lead + word + (word.count == collapsed.count ? trail : ""), highlighted: highlighted))
+            if word.count < collapsed.count {
+                runs.append(Snippet.Run(text: String(collapsed.dropFirst(word.count)) + trail, highlighted: false))
+            }
+        }
+        for mark in source.highlights {
+            let lower = max(cursor, min(units.count, Int(mark.start) - Int(source.start)))
+            let upper = max(lower, min(units.count, Int(mark.end) - Int(source.start)))
+            append(cursor..<lower, false)
+            append(lower..<upper, true)
+            cursor = upper
+        }
+        append(cursor..<units.count, false)
+        return Snippet(runs: runs, cutAtStart: source.start > 0, cutAtEnd: Int(source.end) < bodyLength)
+    }
 
-        var planRequest = Ai_Protomolt_Search_V1_PlanIndexRequest()
-        planRequest.descriptorSet = descriptorSet
-        planRequest.messageType = messageType
-        let plan = try engine.planIndex(planRequest).plan
+    private static func plan(_ descriptorSet: Data, _ engine: SearchEngine) throws -> Ai_Protomolt_Search_V1_MappedPlan {
+        var request = Ai_Protomolt_Search_V1_PlanIndexRequest()
+        request.descriptorSet = descriptorSet
+        request.messageType = messageType
+        return try engine.planIndex(request).plan
+    }
 
+    private static func ingest(_ opinions: [Opinion], descriptorSet: Data, fingerprint: String, into engine: SearchEngine) throws {
         var bind = Ai_Protomolt_Search_V1_MappedBind()
         bind.descriptorSet = descriptorSet
         bind.messageType = messageType
-        bind.expectedFingerprint = plan.fingerprint
+        bind.expectedFingerprint = fingerprint
         bind.bodyPath = "body"
         // field_analysis names EVERY text path, body included, and replaces the
         // legacy `analysis` field; the two are mutually exclusive.

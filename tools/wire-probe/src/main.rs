@@ -13,8 +13,8 @@ use protomolt_search_embedded::pb::mobile::{
 };
 use protomolt_search_embedded::pb::{
     ingest_mapped_request, search_query, selection_query, DenseQuery, IngestMappedRequest,
-    IngestMappedResponse, LexicalQuery, MappedBind, MappedFieldAnalysis, PlanIndexRequest, PlanIndexResponse,
-    QueryRequest, QueryResponse, SearchQuery, SelectionQuery,
+    HighlightMode, HighlightSpec, IngestMappedResponse, LexicalQuery, MappedBind, MappedFieldAnalysis, PlanIndexRequest, PlanIndexResponse,
+    QueryRequest, QueryResponse, SearchQuery, SelectionQuery, TermPrefix,
 };
 use protomolt_search_embedded::MobileBuffer;
 
@@ -95,10 +95,21 @@ fn opinion(id: &str, title: &str, body: &str, embedding: &[f32]) -> Vec<u8> {
 }
 
 fn query(selection: search_query::Query, id: &str) -> QueryRequest {
+    // The engine serves snippets for a single lexical selection only and refuses
+    // the field on any other shape: only that path carries occurrence spans.
+    let lexical = matches!(selection, search_query::Query::Lexical(_));
     QueryRequest {
         request_id: "wire-probe".into(),
         k: 5,
         selection_k: 5,
+        // Engine-cut snippets with highlight offsets, plus its own timing profile.
+        highlight: lexical.then(|| HighlightSpec {
+            max_snippets: 1,
+            max_chars: 160,
+            mode: HighlightMode::Window as i32,
+            ..Default::default()
+        }),
+        profile: true,
         selection: Some(SelectionQuery {
             node: Some(selection_query::Node::Search(SearchQuery {
                 id: id.into(),
@@ -110,10 +121,16 @@ fn query(selection: search_query::Query, id: &str) -> QueryRequest {
 }
 
 fn show(label: &str, response: &QueryResponse, titles: &[String]) {
-    println!("{label}: {} hits", response.hits.len());
+    println!("{label}: {} hits  executed={:?}", response.hits.len(), response.executed);
+    if let Some(profile) = &response.profile { println!("  profile: {profile:?}"); }
     for hit in &response.hits {
         let title = titles.get(hit.doc_id as usize).map(String::as_str).unwrap_or("?");
         println!("  doc_id={} score={:.4}  {title}", hit.doc_id, hit.score);
+        for snippet in &hit.snippets {
+            let marks: Vec<String> = snippet.highlights.iter()
+                .map(|h| format!("{}..{}", h.start - snippet.start, h.end - snippet.start)).collect();
+            println!("      snippet[{}..{}] marks={marks:?}: {}", snippet.start, snippet.end, snippet.text.replace('\n', " "));
+        }
     }
 }
 
@@ -204,6 +221,12 @@ fn main() {
     let lexical = query(
         search_query::Query::Lexical(LexicalQuery {
             text: std::env::args().nth(2).unwrap_or_else(|| "habeas".into()),
+            // Type-ahead: the last word again as a prefix. The dictionary holds stems,
+            // so the text leg covers a finished word ("sentencing" -> "sentenc") and
+            // the prefix leg covers an unfinished one ("hab" -> "habeas").
+            prefixes: std::env::args().nth(2).and_then(|q| q.split_whitespace().last().map(str::to_string))
+                .filter(|_| std::env::var("PREFIX").is_ok())
+                .map(|prefix| vec![TermPrefix { prefix, max_expansions: 32 }]).unwrap_or_default(),
             analysis: Some(body_spec()),
             ..Default::default()
         }),

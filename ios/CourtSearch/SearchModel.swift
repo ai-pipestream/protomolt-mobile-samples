@@ -13,14 +13,25 @@ final class SearchModel: ObservableObject {
 
     @Published private(set) var phase: Phase = .opening
     @Published private(set) var opinions: [Opinion] = []
-    @Published private(set) var stats: IndexStats?
+    @Published private(set) var index: IndexStats?
+    /// Nil while the query is empty: the list shows every opinion instead.
     @Published private(set) var results: [SearchHit]?
-    @Published var query = ""
+    /// The most recent query of either kind; what the engine strip reports.
+    @Published private(set) var lastQuery: QueryStats?
+    /// Every suggestion returns results in the bundled corpus, across different
+    /// areas of law. DESIGN.md lists the same set for every platform.
+    static let suggestions = ["habeas", "sentencing", "conspiracy", "insurance",
+                              "maritime", "arbitration", "forfeiture", "qualified immunity"]
 
-    private var index: CourtIndex?
+    @Published var query = "" {
+        didSet { if query != oldValue { scheduleSearch() } }
+    }
+
+    private var courtIndex: CourtIndex?
+    private var pending: Task<Void, Never>?
 
     func open() async {
-        guard index == nil else { return }
+        guard courtIndex == nil else { return }
         do {
             let directory = try FileManager.default
                 .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -33,41 +44,51 @@ final class SearchModel: ObservableObject {
             let opened = try await Task.detached(priority: .userInitiated) {
                 try CourtIndex(directory: directory)
             }.value
-            index = opened
+            courtIndex = opened
             opinions = opened.opinions
-            let openedStats = await opened.stats
-            stats = openedStats
+            let stats = await opened.stats
+            index = stats
             // One line on stdout, readable from a host with `devicectl … launch --console`.
-            print("court-index documents=\(openedStats.documents) bytes=\(openedStats.bytesOnDisk) "
-                + "ingestSeconds=\(openedStats.ingestSeconds.map { String(format: "%.3f", $0) } ?? "reopened")")
+            print("court-index documents=\(stats.documents) bytes=\(stats.bytesOnDisk) "
+                + "ingestSeconds=\(stats.ingestSeconds.map { String(format: "%.3f", $0) } ?? "reopened")")
             phase = .ready
-            // `-query habeas` on the launch command line lands in UserDefaults; it
-            // lets a script or a demo open straight onto a result list.
-            if let launchQuery = UserDefaults.standard.string(forKey: "query") {
-                query = launchQuery
-                await search()
-            }
+            // `-query habeas` on the launch command line lands in UserDefaults.
+            if let launchQuery = UserDefaults.standard.string(forKey: "query") { query = launchQuery }
         } catch {
             phase = .failed(String(describing: error))
         }
     }
 
-    func search() async {
-        let text = query.trimmingCharacters(in: .whitespaces)
-        guard let index, !text.isEmpty else {
+    /// Search as you type, 200 ms after the last keystroke.
+    private func scheduleSearch() {
+        pending?.cancel()
+        // Leading space only: a trailing space means the last word is finished,
+        // which is what turns the type-ahead prefix off.
+        let text = String(query.drop(while: \.isWhitespace))
+        guard let courtIndex, !text.trimmingCharacters(in: .whitespaces).isEmpty else {
             results = nil
             return
         }
-        do {
-            results = try await index.search(text: text, limit: 10)
-        } catch {
-            phase = .failed(String(describing: error))
+        pending = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            do {
+                // Ask for every opinion: the corpus is small, and "N of 25" on the engine
+                // strip must be the number that matched, not a page size.
+                let result = try await courtIndex.search(text: text, limit: opinions.count)
+                guard !Task.isCancelled else { return }
+                results = result.hits
+                lastQuery = result.stats
+            } catch {
+                phase = .failed(String(describing: error))
+            }
         }
     }
 
     func neighbours(of opinion: Opinion) async -> [SearchHit] {
-        guard let index else { return [] }
+        guard let courtIndex, let result = try? await courtIndex.neighbours(of: opinion, limit: 6) else { return [] }
+        lastQuery = result.stats
         // The nearest neighbour of a stored vector is itself; drop it.
-        return ((try? await index.neighbours(of: opinion, limit: 6)) ?? []).filter { $0.id != opinion.id }
+        return result.hits.filter { $0.id != opinion.id }
     }
 }

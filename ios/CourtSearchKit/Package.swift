@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CourtSearchKit",
-    platforms: [.iOS(.v15)],
+    platforms: [.iOS(.v18)],
     products: [
         .library(name: "CourtSearchKit", targets: ["CourtSearchKit"])
     ],
