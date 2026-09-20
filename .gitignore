@@ -1,0 +1,9 @@
+models/
+ios/Frameworks/
+.DS_Store
+xcuserdata/
+DerivedData/
+build/
+.gradle/
+*.xcuserstate
+target/
