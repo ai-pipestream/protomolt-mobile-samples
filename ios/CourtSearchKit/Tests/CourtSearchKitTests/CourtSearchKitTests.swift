@@ -25,11 +25,24 @@ final class CourtSearchKitTests: XCTestCase {
     }
 
     private func assertDemoQueries(_ index: CourtIndex) async throws {
-        let habeas = try await index.search(text: "habeas").map(\.opinion.title)
-        XCTAssertEqual(habeas, ["Forsyth v. Spencer", "United States v. Dowdell"])
+        let habeas = try await index.search(text: "habeas")
+        XCTAssertEqual(habeas.hits.map(\.opinion.title), ["Forsyth v. Spencer", "United States v. Dowdell"])
+        XCTAssertEqual(habeas.stats.route, "bm25_search")
+        XCTAssertGreaterThan(habeas.stats.engineMilliseconds, 0)
+        // The engine cuts the snippet and marks the match; the app only slices it.
+        let marked = try XCTUnwrap(habeas.hits[0].snippet).runs.filter(\.highlighted).map(\.text)
+        XCTAssertEqual(marked.map { $0.trimmingCharacters(in: .whitespaces) }, ["habeas"])
+        XCTAssertEqual(habeas.hits[0].opinion.citation, "No. 09-1011 (1st Cir. Feb. 16, 2010)")
 
         let first = index.opinions[0]
-        let neighbours = try await index.neighbours(of: first)
+        // Type-ahead: an unfinished word finds what the finished one does.
+        let typing = try await index.search(text: "hab")
+        XCTAssertEqual(Array(typing.hits.map(\.opinion.title).prefix(2)), ["Forsyth v. Spencer", "United States v. Dowdell"])
+
+        let similar = try await index.neighbours(of: first)
+        XCTAssertEqual(similar.stats.route, "search")
+        XCTAssertNil(similar.hits[0].snippet, "snippets are a keyword-only feature")
+        let neighbours = similar.hits
         XCTAssertEqual(neighbours.map(\.opinion.title), [
             "United States v. Davila-Gonzalez",
             "United States v. Rodríguez-Vélez",
