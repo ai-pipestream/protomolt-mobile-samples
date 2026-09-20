@@ -256,8 +256,8 @@ TurboQuant quantization, and no calibration call was needed, which matters
 because the mobile ABI does not expose one.
 
 The sequence is `open(create)` → `planIndex` → `ingestMapped(bind + documents)`
-→ `flush` → `query`. Four rules were learned from refusals, none of them
-written down for the mobile path:
+→ `flush` → `query`. These rules were learned from refusals and build
+failures, none of them written down for the mobile path:
 
 1. Every string field the plan lands must be declared on the shard
    (`bm25_fields`), or ingest refuses with `FAILED_PRECONDITION`.
@@ -268,6 +268,20 @@ written down for the mobile path:
    no default spec.
 4. `expected_fingerprint` comes from `planIndex` on the same descriptor set. The
    device tests hardcode theirs; an app with its own schema plans first.
+5. `QueryRequest.highlight` is served for a single lexical selection only. On a
+   dense query the engine refuses the whole request, so the field must be left
+   off rather than ignored. `profile = true` works on both and returns the
+   engine's own timings; `executed` names the route (`bm25_search`, `search`).
+6. `LexicalQuery.prefixes` gives type-ahead, but the dictionary holds stems: a
+   finished word sent only as a prefix ("sentencing") misses its own stem
+   ("sentenc"). Send the text and the last word as a prefix together; the engine
+   scores the union. Snippet offsets are UTF-16 code units of the original text.
+7. Full `protobuf-java` cannot compile the engine's contracts: fields named
+   `descriptor` generate a `getDescriptor()` that collides with the runtime's.
+   Android uses `protobuf-javalite`, which has no descriptors.
+8. The engine's `build-android-aar.sh` does not run on macOS (bash 4 syntax, and
+   an NDK host directory that does not exist on Apple Silicon). This repository
+   carries `scripts/build-engine-android.sh` instead.
 
 ### Phase 1 — on-device embedder, owned by the sample
 
@@ -281,12 +295,19 @@ written down for the mobile path:
    cross-implementation conformance evidence; disagreement is a finding to
    report, not to paper over.
 
-### Phase 2 — Android
+### Phase 2 — Android (landed early, 2026-09-20)
 
-Export `ANDROID_HOME` or `ANDROID_NDK_HOME`, `scripts/build-android-aar.sh`,
-then a Kotlin app under `android/` mirroring Phases 0 and 1. The
-embedder FFI crate gains a JNI entry point or is reached through a thin JNI
-shim in the sample.
+Done ahead of Phase 1 so the embedder FFI is designed once, against both
+consumers. `scripts/build-engine-android.sh` builds the AAR (arm64 by default;
+every phone and the emulators on an Apple Silicon host). `android/` is a Kotlin
+and Jetpack Compose app implementing `DESIGN.md`; Gradle compiles the engine's
+protobuf contracts with the lite runtime. The instrumented test
+`CourtIndexTest` asserts the same results as the iOS test and the probe, and
+passes on a Pixel 11 Pro Fold (Android 17). First ingest on that phone took
+2.90 s; index 6.0 MB. One measurement, debug build: not a benchmark.
+
+Still ahead for Android in Phase 1: the embedder FFI gains a JNI entry point, or
+is reached through a thin JNI shim in the sample.
 
 ## Risks and open questions
 
