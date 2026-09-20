@@ -1,101 +1,157 @@
-# protomolt-mobile-samples
+# Court Search — a Protomolt Search sample for iOS and Android
 
-A small phone app that searches court opinions **entirely on the device**: no
-server, no network, no account. It exists to answer one question about
-[protomolt-search](https://github.com/ai-pipestream/protomolt-search), the
-Pipestream search engine: *does the embedded engine really work as the search
-backend of an ordinary iOS or Android app?* The engine's own docs say nobody has
-run it on a phone yet. This sample is that run.
+A legal research app in miniature that runs **entirely on the phone**: no
+server, no network permission, no account. It is a working sample of
+[Protomolt Search](https://github.com/ai-pipestream/protomolt-search), the
+Pipestream search engine, embedded in ordinary native apps — SwiftUI on iOS,
+Jetpack Compose on Android — through the engine's mobile packages.
 
-## What the app does
+<p>
+  <img src="docs/screenshots/ios-results-light.png" width="240" alt="Keyword results for “sentencing”: each opinion as a citation with the matching passage highlighted">
+  <img src="docs/screenshots/ios-start-dark.png" width="240" alt="The start screen in dark mode, with suggested searches">
+  <img src="docs/screenshots/ios-results-dark.png" width="240" alt="Type-ahead results for “qualified immun” in dark mode">
+</p>
 
-The app ships with 25 real federal court opinions (from CourtListener). On first
-launch it builds a private search index inside the app's own storage. After
-that you can do two things:
+## What it does
 
-| Feature | What you do | What happens |
+The app ships with 25 real opinions of the U.S. Court of Appeals for the First
+Circuit. On first launch it builds a private search index inside its own
+storage — about a second and a half on an iPhone XR — and from then on:
+
+| | What you do | What the engine does, on the device |
 | --- | --- | --- |
-| **Keyword search** | Type `habeas` | Opinions whose text contains the word, best match first (BM25 ranking, the same family of scoring a web search engine uses for words) |
-| **Similar opinions** | Tap any opinion | The opinions closest in *meaning* to it, even where they share few exact words |
+| **Keyword search** | Type `habeas`, or just `hab` | BM25 ranking with type-ahead. Results arrive as you type, each as a citation with the passage that matched. The engine cuts those passages and marks the matched words itself; the app only draws the highlighter |
+| **Similar opinions** | Open any opinion | Nearest-neighbour search over 512-dimensional embeddings: the opinions closest in *meaning*, even where they share few words |
+| **Engine panel** | Tap the slate strip under the search box | The engine's own account of the last query — its timing, how many opinions matched, the route it took — beside the index's size, vector dimensions, and build time |
 
-"Similar opinions" works because every opinion comes with an **embedding**: a
-list of 512 numbers that places its text in a space where related documents sit
-near each other. Finding similar opinions is finding the nearest points.
+The index survives closing the app: relaunch and it reopens what it built. The
+app requests no network permission, and the engine package it links contains no
+networking code at all.
 
-The index survives closing the app. Relaunch and it reopens what it built
-instead of building again. The app asks for no network permission, and the
-engine it links contains no networking code at all.
+## Why it exists
 
-## What we are building, in order
+Protomolt Search's embedded runtime is designed to be the search backend of a
+mobile app, and its documentation is candid that this had been compile-checked
+but not yet run on phone hardware. This sample is that run, and a reference for
+anyone doing the same:
 
-**Phase 0 — the engine runs in an app.** *Running on a physical iPhone XR;
-Android builds and awaits its first run.* Keyword search and similar-opinions, as above. The embeddings for
-the 25 opinions were computed ahead of time on a laptop and ship with the app,
-so the phone only has to store and search them.
+- **The call sequence that works**: open → plan the index from a protobuf
+  descriptor → mapped ingest → flush → query, all as protobuf bytes across the
+  engine's C and JNI boundary.
+- **The rules the engine enforces** that the mobile path does not yet document —
+  which fields a shard must declare, which field an unqualified query searches,
+  how analysis is bound, when snippets are served, how type-ahead interacts with
+  stemming. They were learned from the engine's refusals and are written down in
+  [PLAN.md](PLAN.md).
+- **One design, two platforms**: both apps implement [DESIGN.md](DESIGN.md) and
+  assert the same results in their tests.
 
-**Phase 1 — search by meaning, typed by you.** Today you can only find
-neighbours of an opinion that is already in the index, because the phone has no
-way to turn *new* text into an embedding. Phase 1 adds that: a small on-device
-embedding model, so you can type "police searched the car without a warrant"
-and get relevant opinions even if none uses those words. It also lets us check
-that the phone computes the same embeddings the laptop did — the first evidence
-that two independent implementations of the model agree.
+## Results so far
 
-**Phase 2 — the same on the other platform,** sharing one schema, one fixture,
-and one set of expected results, so iOS and Android are provably the same app.
+| | Acceptance test | On hardware |
+| --- | --- | --- |
+| Host reference ([tools/wire-probe](tools/wire-probe)) | passes | — |
+| iOS | passes (iPhone 17 simulator) | iPhone XR, iOS 18: first index build 2.23 s, then 1.52–1.58 s; 6.0 MB on disk; survives kill and relaunch |
+| Android | passes on device | Pixel 11 Pro Fold, Android 17: index build 2.90 s; 6.0 MB on disk |
 
-## What this is not
+The acceptance test is the same everywhere: ingest the 25 opinions; `habeas`
+returns *Forsyth v. Spencer* then *United States v. Dowdell*, with "habeas"
+marked in the engine's snippet; `hab` finds the same two; the five nearest
+neighbours of the first opinion come back in a fixed order; close, reopen, check
+again. Those expectations match an independent implementation, the Java/Lucene
+court sample in [protomolt](https://github.com/ai-pipestream/protomolt) — the
+two engines agree on ranking, and on similarity scores to within quantization.
 
-- **Not a product.** 25 opinions, a plain list UI. It is a proof and a
-  reference, not a legal research tool.
-- **Not the collaborative search** described in the engine's
-  `docs/device-shards.md`, where phones answer shared queries. That depends on
-  this working first.
-- **Not a fork of the engine.** Nothing here changes `protomolt-search`. The app
-  consumes it the way any outside developer would: a built XCFramework or AAR
-  plus its protobuf contracts. Logic that only a mobile app needs lives here
-  first; whether any of it moves into the engine is a later decision.
+Timings are single debug-build measurements, not benchmarks.
 
-## Status
+## How it fits together
 
-| | Builds | Acceptance test | Real device |
-| --- | --- | --- | --- |
-| Host reference (`tools/wire-probe`) | yes | passes | n/a |
-| iOS | yes | passes on iPhone 17 simulator | iPhone XR: index built on device in ~1.5 s, keyword search correct, similar opinions shown, survives kill and relaunch |
-| Android | yes (arm64, protobuf lite) | written, not yet run | not yet run |
+```mermaid
+flowchart LR
+    UI["SwiftUI / Compose<br/>DESIGN.md"] --> Index["CourtIndex<br/>plan · ingest · query"]
+    Index --> Wrapper["Typed wrapper<br/>generated protobuf types"]
+    Wrapper -->|protobuf bytes| ABI["Engine byte ABI<br/>XCFramework / AAR"]
+    ABI --> Engine["Protomolt Search<br/>embedded runtime (Rust)"]
+    Engine --> Files[("Index files in the<br/>app's private storage")]
+```
 
-The acceptance test is the same everywhere: ingest the 25 opinions, check that
-`habeas` returns *Forsyth v. Spencer* then *United States v. Dowdell*, check the
-five nearest neighbours of the first opinion, close, reopen, check again. Those
-expected results match an independent implementation, the Java/Lucene court
-sample in `ai-pipestream/protomolt`.
+The engine is consumed exactly as an outside developer would consume it: a built
+XCFramework or AAR plus its protobuf contracts, from a pinned revision. Nothing
+in this repository changes the engine.
 
-## Try it
+## Build and run
 
-Needs a checkout of `protomolt-search` next to this repository, Rust with the
-iOS/Android targets, and Xcode or the Android SDK + NDK.
+You need a checkout of
+[protomolt-search](https://github.com/ai-pipestream/protomolt-search) **next to**
+this repository, Rust with the mobile targets
+(`rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-linux-android`),
+and `protoc`.
+
+**iOS** — Xcode 26, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
-# iOS
-scripts/build-engine.sh                     # engine → ios/Frameworks (about 5 min, once)
+scripts/build-engine.sh                 # engine → ios/Frameworks, about 5 minutes, once
 cd ios && xcodegen generate && open CourtSearch.xcodeproj
-#   run the CourtSearch scheme; launch argument `-query habeas` opens on results
+```
 
-# Host reference: the same engine calls from Rust, no phone involved
+Run the `CourtSearch` scheme. For a device, pick your team under Signing &
+Capabilities. Launch arguments: `-query habeas` opens on results, and
+`-resetIndex YES` rebuilds the index without reinstalling. The acceptance test is
+the `CourtSearchKit` scheme (⌘U).
+
+**Android** — Android SDK with an NDK, JDK 17 or newer.
+
+```bash
+scripts/build-engine-android.sh         # engine → android/libs, about 2 minutes, once
+cd android && ./gradlew :app:installDebug
+./gradlew :app:connectedDebugAndroidTest    # the acceptance test, on a device or emulator
+```
+
+`adb shell am start -n ai.pipestream.samples.courtsearch/.MainActivity --es query habeas`
+opens on results; `--ez resetIndex true` rebuilds the index.
+
+**Host reference** — the same engine calls from Rust, no phone involved:
+
+```bash
 cd tools/wire-probe && cargo run -- ../../fixtures/court_opinions_potion512.ndjson habeas
 ```
 
 ## Layout
 
 ```
-PLAN.md        the engineering plan, findings, and the engine rules learned the hard way
+README.md      you are here
+PLAN.md        the engineering plan: what was verified, the engine rules, open questions
+DESIGN.md      the UX spec both apps implement
 proto/         court.proto — the opinion schema every platform plans its index from
-fixtures/      the 25 opinions with precomputed embeddings; court.desc
-tools/wire-probe/   host-side reference for the engine's mobile byte ABI
-ios/           CourtSearchKit (Swift package: engine + index) and the CourtSearch app
-android/       the Android app (in progress)
-scripts/       build the engine, regenerate protobuf types, fetch the Phase 1 model
+fixtures/      25 opinions with metadata and precomputed embeddings; court.desc
+tools/wire-probe/   host-side Rust reference for the engine's mobile byte ABI
+ios/           CourtSearchKit (Swift package: engine wrapper + index) and the app
+android/       the Android app (Kotlin, Jetpack Compose)
+design/        the app icon master
+scripts/       build the engine per platform; regenerate protobuf types, fixture, icons
 ```
 
-`PLAN.md` is the document for engineers: what was verified, what the engine
-refuses and why, and the open questions for review.
+## What comes next
+
+**Search by meaning, typed by you.** Today "similar opinions" starts from an
+opinion already in the index, because the phone has no way to turn *new* text
+into an embedding; the 25 vectors were computed ahead of time. The next phase
+puts a small static-embedding model on the device, so "police searched the car
+without a warrant" finds the right opinions even if none uses those words. It
+also lets us check that the phone computes the same vectors the laptop did — the
+first evidence that two independent implementations of the model agree.
+
+This sample is not the collaborative, device-owned-shard search described in the
+engine's `docs/device-shards.md`; that design depends on this working first.
+
+## Data, model, and license
+
+- **Opinions**: U.S. federal court opinions, in the public domain, from
+  [CourtListener](https://www.courtlistener.com/) by the Free Law Project. Each
+  opinion in the app links back to its CourtListener page.
+- **Embeddings**: computed with
+  [`minishlab/potion-retrieval-32M`](https://huggingface.co/minishlab/potion-retrieval-32M)
+  (MIT). The model itself is not in this repository; only the 25 resulting
+  vectors are.
+- **Code**: MIT, the same license as the engine's embedded package. See
+  [LICENSE](LICENSE).
