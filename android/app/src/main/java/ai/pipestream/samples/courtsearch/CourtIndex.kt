@@ -173,8 +173,9 @@ class CourtIndex(assets: AssetManager, directory: File, modelDirectory: File? = 
         val shard = Mobile.MobileShardConfig.newBuilder()
             .setIndexPath(File(directory, "court.tv").path)
             .addFacetFields("id")
-            // Order matters: the FIRST bm25 field is what an unqualified LexicalQuery
-            // searches. Every string field the plan lands must be declared here.
+            // Setting this table replaces the engine's ["body"] default. The body column
+            // goes first (entry 0 is what an unqualified LexicalQuery searches), then
+            // every other text field the plan lands.
             .addBm25Fields("body")
             .addBm25Fields("title")
         engine = SearchEngine(Mobile.MobileOpenRequest.newBuilder().addShards(shard).build(), create = !exists)

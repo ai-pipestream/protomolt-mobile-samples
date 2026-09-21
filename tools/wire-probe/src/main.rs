@@ -174,11 +174,12 @@ fn main() {
     let open = MobileOpenRequest {
         shards: vec![MobileShardConfig {
             index_path: root.join("court.tv").to_string_lossy().into_owned(),
-            // The plan lands every string field as a column; the shard must declare
-            // each one or mapped ingest refuses with FAILED_PRECONDITION.
+            // Setting bm25_fields replaces the engine's ["body"] default, so the body
+            // column is listed here too, and every other text field the plan lands;
+            // an omitted one refuses mapped ingest with FAILED_PRECONDITION.
             facet_fields: vec!["id".into()],
-            // Order matters: the FIRST bm25 field is what an unqualified LexicalQuery
-            // searches. With "title" first, "habeas" finds nothing.
+            // Body first: entry 0 is what an unqualified LexicalQuery searches, and the
+            // engine does not check. With "title" first, "habeas" finds nothing.
             bm25_fields: vec!["body".into(), "title".into()],
             ..Default::default()
         }],

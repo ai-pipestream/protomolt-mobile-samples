@@ -188,8 +188,9 @@ public actor CourtIndex {
         var shard = Ai_Protomolt_Search_Mobile_V1_MobileShardConfig()
         shard.indexPath = path
         shard.facetFields = ["id"]
-        // Order matters: the FIRST bm25 field is what an unqualified LexicalQuery
-        // searches. Every string field the plan lands must be declared here.
+        // Setting this table replaces the engine's ["body"] default. The body column
+        // goes first (entry 0 is what an unqualified LexicalQuery searches), then
+        // every other text field the plan lands.
         shard.bm25Fields = ["body", "title"]
         var open = Ai_Protomolt_Search_Mobile_V1_MobileOpenRequest()
         open.shards = [shard]

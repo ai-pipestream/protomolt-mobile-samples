@@ -62,11 +62,15 @@ inherits that for free as long as it adds none of its own.
 Each of these was learned from a refusal, a build failure, or a silently wrong
 answer. None is written down for the mobile path today.
 
-1. **Declare every string field.** Each string field your plan lands must be listed
-   on the shard (`bm25_fields`), or ingest refuses with `FAILED_PRECONDITION`.
-2. **Put your main text field first in `bm25_fields`.** An unqualified
-   `LexicalQuery` searches the *first* entry. With `["title", "body"]`, a word that
-   appears only in bodies returns nothing, with no error. This is the one rule that
+1. **The field table replaces its default; it does not add to it.**
+   `MobileShardConfig.bm25_fields` defaults to `["body"]`. Set it and you have
+   replaced that, so list the body column yourself and then every other text field
+   your plan lands. A text field the plan lands and the table omits refuses ingest
+   with `FAILED_PRECONDITION` ("the plan lands columns this shard does not declare").
+2. **The body column goes first.** Entry 0 of `bm25_fields` is what an unqualified
+   `LexicalQuery` searches. The engine's own convention is "body first", but it does
+   not check: `["title", "body"]` is accepted, indexes both, and then answers a word
+   that appears only in bodies with no hits and no error. This is the one rule that
    fails silently.
 3. **Give every text field an analyzer.** `MappedBind.field_analysis` must name
    every text path, the body included, and cannot be combined with the older
