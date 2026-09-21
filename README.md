@@ -35,30 +35,33 @@ networking code at all.
 
 ## The journey, step by step
 
-Ask in your own words, see which opinions are nearest, open one, and see where in
-it the meaning was found.
+### Search by meaning
 
-<p>
-  <img src="docs/screenshots/journey/02-meaning-start.png" width="195" alt="Meaning mode: describe a situation, or choose a suggested question">
-  <img src="docs/screenshots/journey/03-results.png" width="195" alt="Results: each opinion with the sentence nearest the question, the question's closest words, and a similarity bar">
-  <img src="docs/screenshots/journey/04-opinion.png" width="195" alt="An opened opinion: citation, similar opinions, and a note that the text is shaded by closeness to the question">
-  <img src="docs/screenshots/journey/05-passage-first.png" width="195" alt="The first shaded passage, 1 of 13, reached with the arrows at the bottom right">
-</p>
-<p>
-  <img src="docs/screenshots/journey/07-passage-closest.png" width="195" alt="The closest passage, 11 of 13: deeper highlighter on nearer sentences, the current one underlined">
-  <img src="docs/screenshots/journey/08-passage-last.png" width="195" alt="The last shaded passage, 13 of 13, at the end of the opinion">
-  <img src="docs/screenshots/journey/09-engine-query.png" width="195" alt="The engine panel: time to embed the question, its words and pieces, the similarity range, engine timings">
-  <img src="docs/screenshots/journey/10-engine-embedder.png" width="195" alt="The engine panel's Embedder section: the model, load time, and the check that this phone's vectors are identical to the Java implementation's">
-</p>
+<table>
+  <tr valign="top">
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/1-meaning-start.png" width="190" alt="Meaning mode start screen with suggested questions"><br><b>1. Ask in your own words</b><br><sub>Describe a situation, or pick a suggested question</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/2-results.png" width="190" alt="Meaning results list"><br><b>2. The nearest opinions</b><br><sub>Each with its closest sentence, the words that pulled it in, and a similarity bar</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/3-opinion.png" width="190" alt="An opened opinion"><br><b>3. Open one</b><br><sub>Citation, similar opinions, and a note that the text is shaded by closeness to your question</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/4-passage-first.png" width="190" alt="First shaded passage, 1 of 13"><br><b>4. Step to a passage</b><br><sub>The arrows move through the shaded passages in reading order</sub></td>
+  </tr>
+  <tr valign="top">
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/5-passage-closest.png" width="190" alt="Closest passage, 11 of 13"><br><b>5. The closest passage</b><br><sub>Deeper highlighter means nearer; the current sentence is underlined</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/6-passage-last.png" width="190" alt="Last shaded passage, 13 of 13"><br><b>6. Further down the page</b><br><sub>The last of the 13 shaded passages</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/7-engine-query.png" width="190" alt="Engine panel, last query"><br><b>7. What the query cost</b><br><sub>Time to embed the question, its word-pieces, the similarity range, engine timings</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/meaning/8-engine-embedder.png" width="190" alt="Engine panel, embedder section"><br><b>8. The embedder, checked</b><br><sub>The phone’s vectors are identical to the Java implementation’s, 25 of 25</sub></td>
+  </tr>
+</table>
 
-Keyword search works the same way, with the engine's own highlighted snippets and
-every matched word marked in the opened opinion:
+### Search by keyword
 
-<p>
-  <img src="docs/screenshots/ios-results-light.png" width="195" alt="Keyword results for “sentencing”: each opinion as a citation with the matching passage highlighted">
-  <img src="docs/screenshots/ios-results-dark.png" width="195" alt="Type-ahead results for “qualified immun” in dark mode">
-  <img src="docs/screenshots/ios-keyword-reading-dark.png" width="195" alt="A keyword hit's reading view in dark mode: every matched word highlighted, arrows stepping through 54 of them">
-</p>
+<table>
+  <tr valign="top">
+    <td align="center" width="25%"><img src="docs/screenshots/keyword/1-start.png" width="190" alt="Keyword mode start screen"><br><b>1. Type a word</b><br><sub>Or pick one; every suggestion finds something</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/keyword/2-results.png" width="190" alt="Keyword results with highlighted snippets"><br><b>2. Results as you type</b><br><sub>“qualified immun” already matches; the engine cuts and marks each snippet itself</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/keyword/3-opinion.png" width="190" alt="Keyword reading view, 1 of 54"><br><b>3. Every match marked</b><br><sub>Opening a result highlights each word the engine matched, 54 here</sub></td>
+    <td align="center" width="25%"><img src="docs/screenshots/keyword/4-further.png" width="190" alt="Keyword reading view, 9 of 54"><br><b>4. Step through them</b><br><sub>The same arrows, from match to match</sub></td>
+  </tr>
+</table>
 
 ## Why it exists
 
