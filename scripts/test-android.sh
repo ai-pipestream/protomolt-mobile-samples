@@ -3,8 +3,8 @@
 # device says.
 #
 # `./gradlew connectedDebugAndroidTest` runs the same tests but has been seen to
-# mark the task FAILED after every test passed (AGP 9.4.1, wireless adb, a Pixel
-# Fold): its post-run collection of "additional test output" from /sdcard fails,
+# mark the task FAILED after every test passed (AGP 9.4.1, wireless adb, a
+# Pixel): its post-run collection of "additional test output" from /sdcard fails,
 # and switching that collection off breaks the task outright. The instrumentation
 # result is the source of truth, so this asks for it directly.
 set -euo pipefail
