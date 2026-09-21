@@ -1,5 +1,6 @@
 import CourtSearchKit
 import Foundation
+import SwiftUI
 
 /// Owns the on-device index. Every engine call blocks, so the index is opened on
 /// a detached task and queried through its actor, never on the main thread.
@@ -51,6 +52,19 @@ final class SearchModel: ObservableObject {
     @Published var pendingOpen: String?
     private var launchOpen = UserDefaults.standard.object(forKey: "open") as? Int ?? Int(UserDefaults.standard.string(forKey: "open") ?? "")
 
+    // Hooks the scripted tour (`-demo meaning`) uses to drive views it cannot reach
+    // directly. Each is a counter or flag a view observes; nothing else sets them.
+    @Published var tourJump = 0
+    @Published var tourStep = 0
+    @Published var tourBack = 0
+    @Published var tourEngine = false
+    @Published var tourEngineAnchor: String?
+    /// Where the tour's press mark is, in screen coordinates; nil when lifted.
+    @Published var tourTouch: CGPoint?
+    /// Frames of the controls the tour presses. Not published: views write it while
+    /// laying out, and nothing redraws because of it.
+    var tourFrames: [String: CGRect] = [:]
+
     private var courtIndex: CourtIndex?
     private var pending: Task<Void, Never>?
 
@@ -82,6 +96,7 @@ final class SearchModel: ObservableObject {
                              embedder.dimensions, embedder.loadSeconds, embedder.fixtureWorstDelta, embedder.fixtureSeconds))
             }
             if UserDefaults.standard.string(forKey: "mode") == "meaning", embedder != nil { mode = .meaning }
+            if UserDefaults.standard.string(forKey: "demo") == "meaning" { Task { await runTour() } }
             phase = .ready
             // The vector engine picks its kernels from these at run time, so they
             // belong beside any score comparison between devices.
@@ -98,6 +113,49 @@ final class SearchModel: ObservableObject {
         } catch {
             phase = .failed(String(describing: error))
         }
+    }
+
+    /// `-demo meaning`: the Meaning journey, start to finish, with the taps scripted
+    /// and drawn. The engine, the model, and every result are real; only the fingers
+    /// are not. For recording a demo, and for showing the app without a free hand.
+    func runTour() async {
+        func pause(_ seconds: Double) async { try? await Task.sleep(for: .milliseconds(Int(seconds * 1000))) }
+        /// Shows a press mark on a registered control (or at a point within it), then
+        /// lifts it. The caller performs the action between press and lift.
+        func tap(_ id: String, at unit: UnitPoint = .center, then action: () -> Void) async {
+            if let frame = tourFrames[id] {
+                tourTouch = CGPoint(x: frame.minX + frame.width * unit.x, y: frame.minY + frame.height * unit.y)
+                await pause(0.32)
+            }
+            action()
+            await pause(0.22)
+            tourTouch = nil
+        }
+        guard embedder != nil else { return }
+        await pause(1.5)
+        // The segmented control is one view; Meaning is its right half.
+        await tap("mode", at: UnitPoint(x: 0.75, y: 0.5)) { mode = .meaning }
+        await pause(2.0)
+        await tap("chip-0") { query = Self.questions[0] }
+        await pause(2.8)
+        await tap("result-0") { if let first = results?.first { pendingOpen = first.id } }
+        await pause(2.8)
+        // Down the page: each press lands on the next shaded passage.
+        for _ in 0..<6 {
+            await tap("navigator-next") { tourStep += 1 }
+            await pause(1.45)
+        }
+        // The system back button has no frame to register; it sits here.
+        tourTouch = CGPoint(x: 44, y: (tourFrames["safe-top"]?.minY ?? 59) + 28)
+        await pause(0.32)
+        tourBack += 1
+        await pause(0.22)
+        tourTouch = nil
+        await pause(1.3)
+        await tap("engine-strip") { tourEngine = true }
+        await pause(2.4)
+        tourEngineAnchor = "embedder"
+        await pause(3.2)
     }
 
     /// Search as you type, 200 ms after the last keystroke.
@@ -123,6 +181,7 @@ final class SearchModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 results = result.hits
                 lastQuery = result.stats
+                resultsQuery = result.stats
                 if let position = launchOpen, result.hits.indices.contains(position - 1) {
                     launchOpen = nil
                     pendingOpen = result.hits[position - 1].id
@@ -162,6 +221,13 @@ final class SearchModel: ObservableObject {
             }
         }
     }
+
+    /// The query that produced the result list, kept so the strip can describe the
+    /// list again after an opened opinion's own similarity query has come and gone.
+    private var resultsQuery: QueryStats?
+
+    /// Back on the result list: the strip describes what is on screen.
+    func returnedToResults() { if let resultsQuery { lastQuery = resultsQuery } }
 
     func neighbours(of opinion: Opinion) async -> [SearchHit] {
         guard let courtIndex, let result = try? await courtIndex.neighbours(of: opinion, limit: 6) else { return [] }

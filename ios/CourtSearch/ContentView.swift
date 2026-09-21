@@ -34,6 +34,11 @@ struct ContentView: View {
         .onChange(of: model.pendingOpen) { _, id in
             if let id { path.append(id); model.pendingOpen = nil }
         }
+        .onChange(of: path.count) { _, depth in if depth == 0 { model.returnedToResults() } }
+        .overlay { TourTouchLayer() }
+        .background(alignment: .top) { Color.clear.frame(height: 0).tourTarget("safe-top", in: model) }
+        .onChange(of: model.tourBack) { _, _ in if !path.isEmpty { path.removeLast() } }
+        .onChange(of: model.tourEngine) { _, open in showingEngine = open }
         // `-showEngine YES`: open the engine panel once the launch query has
         // answered, for scripts, screenshots, and demos.
         .onChange(of: model.lastQuery != nil) { _, answered in
@@ -48,6 +53,7 @@ struct ContentView: View {
                     ForEach(SearchModel.Mode.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
+                .tourTarget("mode", in: model)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 .listRowSeparator(.hidden)
             }
@@ -59,8 +65,9 @@ struct ContentView: View {
                 if results.isEmpty {
                     NoMatches().listRowSeparator(.hidden)
                 } else {
-                    ForEach(results) { hit in
+                    ForEach(Array(results.enumerated()), id: \.element.id) { index, hit in
                         NavigationLink(value: hit.id) { CaseRow(opinion: hit.opinion, hit: hit, topScore: model.lastQuery?.topScore ?? 0) }
+                            .tourTarget("result-\(index)", in: model)
                     }
                 }
             } else {
@@ -113,7 +120,8 @@ struct SuggestionChips: View {
 
     var body: some View {
         FlowLayout(spacing: 8) {
-            ForEach(model.mode == .meaning ? SearchModel.questions : SearchModel.suggestions, id: \.self) { word in
+            let words = model.mode == .meaning ? SearchModel.questions : SearchModel.suggestions
+            ForEach(Array(words.enumerated()), id: \.element) { index, word in
                 Button {
                     taps += 1
                     model.query = word
@@ -124,6 +132,7 @@ struct SuggestionChips: View {
                         .foregroundStyle(Theme.oxblood)
                 }
                 .buttonStyle(.plain)
+                .tourTarget("chip-\(index)", in: model)
             }
         }
         .sensoryFeedback(.selection, trigger: taps)
@@ -306,6 +315,7 @@ struct EngineStrip: View {
             .background(Theme.slateSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
+        .tourTarget("engine-strip", in: model)
         .animation(.snappy(duration: 0.25), value: model.lastQuery?.engineMilliseconds)
         .accessibilityLabel("Engine details")
     }
@@ -334,6 +344,7 @@ struct EnginePanel: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { reader in
             List {
                 if let last = model.lastQuery {
                     Section {
@@ -377,9 +388,9 @@ struct EnginePanel: View {
                             row("Passages embedded", String(format: "%d in %.2f s", passages.count, passages.seconds))
                         }
                     } header: {
-                        Text("Embedder")
+                        Text("Embedder").id("embedder")
                     } footer: {
-                        Text("A word the model has no entry for is spelled out from smaller pieces, down to single letters, so every word gets a vector; three or more pieces means the model does not really know it. Passages are the opinions’ paragraphs, embedded on this phone to show where a question’s meaning was found. The 25 opinion vectors in the index were computed by a Java implementation. On launch this phone embeds the same 25 texts with its own Rust implementation and compares, component by component.")
+                        Text("A word the model has no entry for is spelled out from smaller pieces, down to single letters, so every word gets a vector; three or more pieces means the model does not really know it. Passages are the opinions’ sentences, embedded on this phone to show where a question’s meaning was found. The 25 opinion vectors in the index were computed by a Java implementation. On launch this phone embeds the same 25 texts with its own Rust implementation and compares, component by component.")
                     }
                 }
                 Section("Privacy") {
@@ -389,6 +400,16 @@ struct EnginePanel: View {
             }
             .scrollContentBackground(.hidden)
             .background(Theme.slateSurface)
+            // `-engineAnchor embedder`, or the tour: bring a section to the top.
+            .onChange(of: model.tourEngineAnchor) { _, anchor in
+                if let anchor { withAnimation { reader.scrollTo(anchor, anchor: .top) } }
+            }
+            .task {
+                guard let anchor = UserDefaults.standard.string(forKey: "engineAnchor") else { return }
+                try? await Task.sleep(for: .milliseconds(600))
+                reader.scrollTo(anchor, anchor: .top)
+            }
+            }
             .navigationTitle("Engine")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

@@ -103,7 +103,10 @@ fun CourtSearchApp(model: SearchModel, jumpOnOpen: Boolean = false) {
     }
     var showingEngine by remember { mutableStateOf(false) }
     val open: (Opinion) -> Unit = { stack += Screen.Reading(it) }
-    val back: () -> Unit = { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
+    val back: () -> Unit = {
+        if (stack.size > 1) stack.removeAt(stack.lastIndex)
+        if (stack.last() == Screen.Search) model.returnedToResults()
+    }
     BackHandler(enabled = stack.size > 1, onBack = back)
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

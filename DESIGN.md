@@ -72,7 +72,10 @@ relative to the best hit on screen. Its one empty state is text with no
 vector: "None of those words are in the model's vocabulary." Without a model the
 switch is absent and nothing else changes.
 
-**Engine strip.** One slate row under the search field, always visible:
+**Engine strip.** One slate row under the search field, always visible, and always
+describing what is on screen: beside a result list, the query that produced it
+(restored when you come back from an opened opinion, whose own similarity query
+the strip showed meanwhile):
 engine time of the last query, `{hits} of {documents}`, the route in plain words
 (`Keyword` for `bm25_search`, `Similarity` for `search`), and `On device`.
 Beside the start card it shows index facts instead: the strip always describes
@@ -127,7 +130,14 @@ values, a suggestion chip gives a selection haptic. No entrance animations.
 - Every engine call runs off the main thread.
 - Launch arguments: `query` opens on results; `resetIndex` re-ingests; `mode
   meaning`; `open N` lands on the Nth result's reading view; `jump` scrolls it to
-  the closest passage; `parity` prints the cross-platform report.
+  the closest passage; `steps N` presses the down arrow N times; `showEngine`
+  opens the engine panel and `engineAnchor` scrolls it to a section; `parity`
+  prints the cross-platform report.
+- `demo meaning` (iOS) plays the Meaning journey with the taps scripted: mode,
+  a suggested question, the first result, the arrows down through the shaded
+  passages, back, the engine panel. The tour has no fingers, so it draws them: a
+  control it presses registers its frame, and a press mark lands there before the
+  action runs. Everything else in the tour is the real app.
 - Text is cut into paragraphs and sentences exactly as
   `tools/passages_reference.py` does.
 - One `court-index …` line on stdout/logcat per index open.

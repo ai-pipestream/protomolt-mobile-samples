@@ -132,6 +132,7 @@ class SearchModel(private val scope: CoroutineScope) {
                 }
                 results = result.hits
                 lastQuery = result.stats
+                resultsQuery = result.stats
                 launchOpen?.let { position ->
                     launchOpen = null
                     pendingOpen = result.hits.getOrNull(position - 1)?.opinion
@@ -172,6 +173,15 @@ class SearchModel(private val scope: CoroutineScope) {
         if (mode != Mode.Keyword || results == null || text.isBlank()) return emptyList()
         return runCatching { withContext(engineThread) { opened.matchedForms(opinion, text) } }.getOrDefault(emptyList())
     }
+
+    /**
+     * The query that produced the result list, kept so the strip can describe the list
+     * again after an opened opinion's own similarity query has come and gone.
+     */
+    private var resultsQuery: QueryStats? = null
+
+    /** Back on the result list: the strip describes what is on screen. */
+    fun returnedToResults() { resultsQuery?.let { lastQuery = it } }
 
     suspend fun neighbours(of: Opinion): List<SearchHit> {
         val opened = courtIndex ?: return emptyList()

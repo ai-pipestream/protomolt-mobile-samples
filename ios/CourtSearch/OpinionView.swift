@@ -80,6 +80,9 @@ struct OpinionView: View {
             }
         }
         .task(id: opinion.id) { await load() }
+        // The scripted tour presses these for the viewer.
+        .onChange(of: model.tourJump) { _, _ in if !marks.isEmpty { select(strongestMark) } }
+        .onChange(of: model.tourStep) { _, _ in step(1) }
         .onChange(of: colorScheme) { _, _ in Task { await load() } }
     }
 
@@ -127,7 +130,8 @@ struct OpinionView: View {
     @ViewBuilder private var legend: some View {
         if let note = legendText {
             Text(note).engineLabel()
-                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                // Clear of the navigator, which floats over this corner of the page.
+                .padding(12).padding(.trailing, 52).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.slateSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.bottom, 14)
         }
@@ -154,6 +158,7 @@ struct OpinionView: View {
                     .frame(minWidth: 44).padding(.horizontal, 6)
                 Button { step(1) } label: { Image(systemName: "chevron.down").frame(width: 44, height: 40) }
                     .accessibilityLabel("Next highlight")
+                    .tourTarget("navigator-next", in: model)
             }
             .font(.body.weight(.semibold))
             .foregroundStyle(Theme.oxblood)
@@ -161,6 +166,13 @@ struct OpinionView: View {
             .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
             .padding(.trailing, 16).padding(.bottom, 20)
         }
+    }
+
+    /// The mark on the sentence nearest the question; the first mark in Keyword mode.
+    private var strongestMark: Int {
+        heat?.hottest.flatMap { hottest in
+            marks.firstIndex { $0.paragraph == hottest.paragraph && $0.sentence == hottest.sentence }
+        } ?? 0
     }
 
     private func step(_ direction: Int) {
@@ -200,13 +212,16 @@ struct OpinionView: View {
         current = nil
         similar = await model.neighbours(of: opinion)
 
+        // `-steps N`: press the down arrow N times, to land further down the page.
+        let steps = UserDefaults.standard.integer(forKey: "steps")
+        if steps > 0, !marks.isEmpty {
+            try? await Task.sleep(for: .milliseconds(400))
+            for _ in 0..<steps { step(1) }
+        }
         // `-jump YES`: land on the strongest mark, for scripts and demos.
         if UserDefaults.standard.bool(forKey: "jump"), !marks.isEmpty {
             try? await Task.sleep(for: .milliseconds(400))
-            let strongest = heat?.hottest.flatMap { hottest in
-                marks.firstIndex { $0.paragraph == hottest.paragraph && $0.sentence == hottest.sentence }
-            } ?? 0
-            select(strongest)
+            select(strongestMark)
         }
     }
 

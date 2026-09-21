@@ -7,15 +7,12 @@ Pipestream search engine, embedded in ordinary native apps — SwiftUI on iOS,
 Jetpack Compose on Android — through the engine's mobile packages.
 
 <p>
-  <img src="docs/screenshots/ios-meaning-results.png" width="240" alt="Search by meaning: each result shows the sentence nearest the question, the question's closest words, and a similarity bar">
-  <img src="docs/screenshots/ios-heatmap.png" width="240" alt="The reading view shaded sentence by sentence by closeness to the question, with arrows that step through the passages">
-  <img src="docs/screenshots/ios-engine-panel.png" width="240" alt="The engine panel: embed time, question pieces, similarity range, engine timings">
+  <img src="docs/demo/meaning-journey.gif" width="300" alt="The app searching by meaning: a question is chosen, results arrive with the nearest sentence of each opinion, a result opens with its text shaded by closeness to the question, the arrows step down through the shaded passages, and the engine panel shows the embedding statistics">
 </p>
-<p>
-  <img src="docs/screenshots/ios-results-light.png" width="240" alt="Keyword results for “sentencing”: each opinion as a citation with the matching passage highlighted">
-  <img src="docs/screenshots/ios-start-dark.png" width="240" alt="The start screen in dark mode, with suggested searches">
-  <img src="docs/screenshots/ios-keyword-reading-dark.png" width="240" alt="A keyword hit's reading view in dark mode: every matched word highlighted, arrows stepping through 54 of them">
-</p>
+
+Search by meaning, start to finish, on the real engine
+([full-quality video](docs/demo/meaning-journey.mp4)). The taps are scripted so the
+tour can be recorded; launch the app with `-demo meaning` to watch it yourself.
 
 ## What it does
 
@@ -35,6 +32,33 @@ storage — about a second and a half on an iPhone XR — and from then on:
 The index survives closing the app: relaunch and it reopens what it built. The
 app requests no network permission, and the engine package it links contains no
 networking code at all.
+
+## The journey, step by step
+
+Ask in your own words, see which opinions are nearest, open one, and see where in
+it the meaning was found.
+
+<p>
+  <img src="docs/screenshots/journey/02-meaning-start.png" width="195" alt="Meaning mode: describe a situation, or choose a suggested question">
+  <img src="docs/screenshots/journey/03-results.png" width="195" alt="Results: each opinion with the sentence nearest the question, the question's closest words, and a similarity bar">
+  <img src="docs/screenshots/journey/04-opinion.png" width="195" alt="An opened opinion: citation, similar opinions, and a note that the text is shaded by closeness to the question">
+  <img src="docs/screenshots/journey/05-passage-first.png" width="195" alt="The first shaded passage, 1 of 13, reached with the arrows at the bottom right">
+</p>
+<p>
+  <img src="docs/screenshots/journey/07-passage-closest.png" width="195" alt="The closest passage, 11 of 13: deeper highlighter on nearer sentences, the current one underlined">
+  <img src="docs/screenshots/journey/08-passage-last.png" width="195" alt="The last shaded passage, 13 of 13, at the end of the opinion">
+  <img src="docs/screenshots/journey/09-engine-query.png" width="195" alt="The engine panel: time to embed the question, its words and pieces, the similarity range, engine timings">
+  <img src="docs/screenshots/journey/10-engine-embedder.png" width="195" alt="The engine panel's Embedder section: the model, load time, and the check that this phone's vectors are identical to the Java implementation's">
+</p>
+
+Keyword search works the same way, with the engine's own highlighted snippets and
+every matched word marked in the opened opinion:
+
+<p>
+  <img src="docs/screenshots/ios-results-light.png" width="195" alt="Keyword results for “sentencing”: each opinion as a citation with the matching passage highlighted">
+  <img src="docs/screenshots/ios-results-dark.png" width="195" alt="Type-ahead results for “qualified immun” in dark mode">
+  <img src="docs/screenshots/ios-keyword-reading-dark.png" width="195" alt="A keyword hit's reading view in dark mode: every matched word highlighted, arrows stepping through 54 of them">
+</p>
 
 ## Why it exists
 

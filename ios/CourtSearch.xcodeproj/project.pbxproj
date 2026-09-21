@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		1044159DD709995BC1A59791 /* CourtSearchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1128BE503B64F6C579737E72 /* CourtSearchApp.swift */; };
 		28F7AF4B99DF0D254AC2B6E7 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411B098795CB6DCD8C9A4A9C /* ContentView.swift */; };
+		2D022A9643A4316CB8F14837 /* Tour.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEB3CCE0AB8822C3AC705144 /* Tour.swift */; };
 		3060BA301482D013BD768A55 /* potion-retrieval-32M in Resources */ = {isa = PBXBuildFile; fileRef = 422B08F4EDDFC6335EEE0430 /* potion-retrieval-32M */; };
 		3AE0AC9544EC5FC87B8B0F18 /* SearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44CD03FB2C62777CD64F9C52 /* SearchModel.swift */; };
 		49F96BD26547658B12C44889 /* OpinionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32933A875929EFE3C1E13032 /* OpinionView.swift */; };
@@ -26,6 +27,7 @@
 		44CD03FB2C62777CD64F9C52 /* SearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchModel.swift; sourceTree = "<group>"; };
 		63F7A129924A502E1CA5EEBF /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		6DE34785FD1D338C1D735B83 /* CourtSearchKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CourtSearchKit; path = CourtSearchKit; sourceTree = SOURCE_ROOT; };
+		BEB3CCE0AB8822C3AC705144 /* Tour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tour.swift; sourceTree = "<group>"; };
 		DAD19EF2D73CB7BBB694540E /* CourtSearch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CourtSearch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -50,6 +52,7 @@
 				32933A875929EFE3C1E13032 /* OpinionView.swift */,
 				44CD03FB2C62777CD64F9C52 /* SearchModel.swift */,
 				63F7A129924A502E1CA5EEBF /* Theme.swift */,
+				BEB3CCE0AB8822C3AC705144 /* Tour.swift */,
 			);
 			path = CourtSearch;
 			sourceTree = "<group>";
@@ -156,6 +159,7 @@
 				49F96BD26547658B12C44889 /* OpinionView.swift in Sources */,
 				3AE0AC9544EC5FC87B8B0F18 /* SearchModel.swift in Sources */,
 				91230D0D205A1496C73817E6 /* Theme.swift in Sources */,
+				2D022A9643A4316CB8F14837 /* Tour.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
