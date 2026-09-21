@@ -42,18 +42,57 @@ class SearchModel(private val scope: CoroutineScope) {
     var query by mutableStateOf("")
         private set
 
+    enum class Mode(val label: String) { Keyword("Keyword"), Meaning("Meaning") }
+
+    var mode by mutableStateOf(Mode.Keyword)
+        private set
+
+    /** Null when no model is bundled: the Meaning mode is then not offered. */
+    var embedder: EmbedderStats? by mutableStateOf(null)
+        private set
+
     private val engineThread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     private var courtIndex: CourtIndex? = null
     private var pending: Job? = null
 
-    suspend fun open(context: Context, launchQuery: String?, resetIndex: Boolean) {
+    fun updateMode(next: Mode) {
+        if (next == mode) return
+        mode = next
+        val text = query
+        query = ""
+        updateQuery(text)
+    }
+
+    suspend fun open(context: Context, launchQuery: String?, resetIndex: Boolean, launchMode: String? = null, open: Int? = null, parity: Boolean = false) {
+        launchOpen = open
         if (courtIndex != null) return
         try {
             val directory = File(context.filesDir, "court-index")
             val opened = withContext(engineThread) {
                 // `--ez resetIndex true` deletes the stored index first, so a launch re-ingests.
                 if (resetIndex) directory.deleteRecursively()
-                CourtIndex(context.assets, directory)
+                CourtIndex(context.assets, directory, Embedder.install(context.assets, context.filesDir))
+            }
+            embedder = opened.embedderStats
+            opened.embedderStats?.let {
+                Log.i("court-index", String.format("embedder dims=%d loadSeconds=%.3f fixtureWorstDelta=%g fixtureSeconds=%.3f",
+                    it.dimensions, it.loadSeconds, it.fixtureWorstDelta, it.fixtureSeconds))
+            }
+            // The vector engine picks its kernels from these at run time, so they belong
+            // beside any score comparison between devices.
+            val features = runCatching { File("/proc/cpuinfo").readLines().firstOrNull { it.startsWith("Features") }.orEmpty().split(" ") }.getOrDefault(emptyList())
+            Log.i("court-index", "cpu dotprod=${if ("asimddp" in features) 1 else 0} i8mm=${if ("i8mm" in features) 1 else 0}")
+            // `--ez parity true`: print the cross-platform report (tools/parity_compare.py).
+            // logcat truncates long lines, so it goes out one query per line.
+            if (parity) withContext(engineThread) { opened.parityReport() }.removePrefix("court-parity ").split(";")
+                .forEach { Log.i("court-parity", it) }
+            if (launchMode == "meaning" && embedder != null) mode = Mode.Meaning
+            if (embedder != null) scope.launch {
+                withContext(engineThread) { opened.preparePassages() }
+                opened.passageSeconds?.let {
+                    passages = opened.passageCount to it
+                    Log.i("court-index", String.format("passages count=%d seconds=%.3f", opened.passageCount, it))
+                }
             }
             courtIndex = opened
             opinions = opened.opinions
@@ -87,15 +126,51 @@ class SearchModel(private val scope: CoroutineScope) {
             try {
                 // Ask for every opinion: the corpus is small, and "N of 25" on the engine
                 // strip must be the number that matched, not a page size.
-                val result = withContext(engineThread) { opened.search(trimmed, limit = opened.opinions.size) }
+                val meaning = mode == Mode.Meaning
+                val result = withContext(engineThread) {
+                    if (meaning) opened.searchByMeaning(trimmed, limit = 8) else opened.search(trimmed, limit = opened.opinions.size)
+                }
                 results = result.hits
                 lastQuery = result.stats
+                launchOpen?.let { position ->
+                    launchOpen = null
+                    pendingOpen = result.hits.getOrNull(position - 1)?.opinion
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 phase = Phase.Failed(e.toString())
             }
         }
+    }
+
+    /** Passage vectors are built once, in the background, right after launch. */
+    var passages: Pair<Int, Double>? by mutableStateOf(null)
+        private set
+
+    /** `--ei open 1`: the result to open once the launch query has answered. */
+    var pendingOpen: Opinion? by mutableStateOf(null)
+    private var launchOpen: Int? = null
+
+    /**
+     * Where the current Meaning question found its meaning in `opinion`; null in
+     * Keyword mode or with no question on screen.
+     */
+    suspend fun heat(opinion: Opinion): Heat? {
+        val opened = courtIndex ?: return null
+        if (mode != Mode.Meaning || results == null) return null
+        return runCatching { withContext(engineThread) { opened.heat(opinion) } }.getOrNull()
+    }
+
+    /**
+     * The words of `opinion` the current Keyword query matched, as the engine marked
+     * them; empty in Meaning mode or with no query on screen.
+     */
+    suspend fun matchedForms(opinion: Opinion): List<String> {
+        val opened = courtIndex ?: return emptyList()
+        val text = query.trimStart()
+        if (mode != Mode.Keyword || results == null || text.isBlank()) return emptyList()
+        return runCatching { withContext(engineThread) { opened.matchedForms(opinion, text) } }.getOrDefault(emptyList())
     }
 
     suspend fun neighbours(of: Opinion): List<SearchHit> {
@@ -116,6 +191,14 @@ class SearchModel(private val scope: CoroutineScope) {
          */
         val suggestions = listOf("habeas", "sentencing", "conspiracy", "insurance",
             "maritime", "arbitration", "forfeiture", "qualified immunity")
+
+        /**
+         * Questions in plain language, none sharing a caption word with what it finds.
+         * Each was checked against the bundled corpus with tools/wire-probe --meaning.
+         */
+        val questions = listOf("insurance company refused to pay the claim", "contract dispute sent to arbitration",
+            "deported despite fear of persecution", "the prison sentence was too long",
+            "fired after complaining about discrimination")
 
         fun routeName(route: String) = when (route) {
             "bm25_search" -> "Keyword"

@@ -11,6 +11,6 @@ Produced by the Java court sample in `ai-pipestream/protomolt` at `dc49800cd6695
 
 Model: `minishlab/potion-retrieval-32M` (MIT). Embedded text is the title, a
 newline, and the first 2,000 characters of the body. The vectors come from the
-OpenNLP Model2Vec provider, not from `protomolt-embedder`; Phase 1 compares the
-two. The provider needs a `vocab.txt` derived from the model's `tokenizer.json`
-(see PLAN.md, "Conformance is not yet proven").
+OpenNLP Model2Vec provider, not from `protomolt-embedder`. The two agree bit for
+bit (GUIDE.md), which the apps re-check at every launch. The provider needs a `vocab.txt` derived from the model's `tokenizer.json`
+(see GUIDE.md, "Problems and workarounds").

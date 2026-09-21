@@ -10,7 +10,15 @@ targets:
   CourtSearch:
     type: application
     platform: iOS
-    sources: [CourtSearch]
+    sources:
+      - CourtSearch
+      # The Phase 1 embedding model (scripts/fetch-model.sh; 123 MB, not in git),
+      # bundled as a folder. Optional: without it the app builds and runs with
+      # keyword search and similar opinions, and hides search by meaning.
+      - path: ../models/potion-retrieval-32M
+        type: folder
+        buildPhase: resources
+        optional: true
     dependencies:
       - package: CourtSearchKit
     settings:
