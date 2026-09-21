@@ -4,9 +4,10 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: SearchModel
     @State private var showingEngine = false
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 switch model.phase {
                 case .opening:
@@ -25,15 +26,31 @@ struct ContentView: View {
                 }
             }
             .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Search \(model.opinions.count) opinions")
+                        prompt: model.mode == .meaning ? "Describe what you are looking for" : "Search \(model.opinions.count) opinions")
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
         }
         .sheet(isPresented: $showingEngine) { EnginePanel().environmentObject(model) }
+        .onChange(of: model.pendingOpen) { _, id in
+            if let id { path.append(id); model.pendingOpen = nil }
+        }
+        // `-showEngine YES`: open the engine panel once the launch query has
+        // answered, for scripts, screenshots, and demos.
+        .onChange(of: model.lastQuery != nil) { _, answered in
+            if answered, UserDefaults.standard.bool(forKey: "showEngine") { showingEngine = true }
+        }
     }
 
     private var list: some View {
         List {
+            if model.embedder != nil {
+                Picker("Search by", selection: $model.mode) {
+                    ForEach(SearchModel.Mode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                .listRowSeparator(.hidden)
+            }
             EngineStrip(showingEngine: $showingEngine, showsLastQuery: model.results != nil)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
                 .listRowSeparator(.hidden)
@@ -43,7 +60,7 @@ struct ContentView: View {
                     NoMatches().listRowSeparator(.hidden)
                 } else {
                     ForEach(results) { hit in
-                        NavigationLink(value: hit.id) { CaseRow(opinion: hit.opinion, hit: hit) }
+                        NavigationLink(value: hit.id) { CaseRow(opinion: hit.opinion, hit: hit, topScore: model.lastQuery?.topScore ?? 0) }
                     }
                 }
             } else {
@@ -65,8 +82,11 @@ struct StartCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Search the opinions").font(.system(.title2, design: .serif).weight(.semibold))
-                Text("Type a word or phrase from an opinion. Results appear as you type, and every search runs on this phone.")
+                Text(model.mode == .meaning ? "Search by meaning" : "Search the opinions")
+                    .font(.system(.title2, design: .serif).weight(.semibold))
+                Text(model.mode == .meaning
+                     ? "Describe the situation in your own words. The phone turns your words into a vector and finds the opinions nearest to it, even when they share no words with you."
+                     : "Type a word or phrase from an opinion. Results appear as you type, and every search runs on this phone.")
                     .font(.system(.body, design: .serif)).foregroundStyle(.secondary)
             }
             VStack(alignment: .leading, spacing: 10) {
@@ -93,7 +113,7 @@ struct SuggestionChips: View {
 
     var body: some View {
         FlowLayout(spacing: 8) {
-            ForEach(SearchModel.suggestions, id: \.self) { word in
+            ForEach(model.mode == .meaning ? SearchModel.questions : SearchModel.suggestions, id: \.self) { word in
                 Button {
                     taps += 1
                     model.query = word
@@ -115,9 +135,13 @@ struct NoMatches: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("No opinion has a word starting with “\(model.query.trimmingCharacters(in: .whitespaces))”")
+            Text(model.mode == .meaning
+                 ? "None of those words are in the model’s vocabulary"
+                 : "No opinion has a word starting with “\(model.query.trimmingCharacters(in: .whitespaces))”")
                 .font(.system(.title3, design: .serif))
-            Text("Search looks at the words of each opinion, not at case names. These all find something:")
+            Text(model.mode == .meaning
+                 ? "Text the model has never seen has no vector to search with. These all find something:"
+                 : "Search looks at the words of each opinion, not at case names. These all find something:")
                 .font(.system(.body, design: .serif)).foregroundStyle(.secondary)
             SuggestionChips()
         }
@@ -179,6 +203,7 @@ struct FlowLayout: Layout {
 struct CaseRow: View {
     let opinion: Opinion
     let hit: SearchHit?
+    var topScore: Float = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -186,7 +211,16 @@ struct CaseRow: View {
             Text(opinion.citation).font(.system(.subheadline, design: .serif)).foregroundStyle(.secondary)
             if let snippet = hit?.snippet {
                 SnippetText(snippet: snippet).padding(.top, 4)
-            } else if hit == nil, let panel = opinion.panel {
+            } else if let passage = hit?.passage {
+                // The dense counterpart of a snippet: the paragraph nearest the question.
+                Text(passage.text).font(.system(.callout, design: .serif)).lineSpacing(3).lineLimit(4)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) { Rectangle().fill(Theme.highlighter).frame(width: 3) }
+                    .padding(.top, 4)
+                if let hit, !hit.closestWords.isEmpty {
+                    Text("Closest words: \(hit.closestWords.joined(separator: ", "))").engineLabel()
+                }
+            } else if let panel = opinion.panel {
                 Text(panel).font(.system(.footnote, design: .serif)).foregroundStyle(.secondary)
             }
             if hit != nil || opinion.isUnpublished {
@@ -198,6 +232,13 @@ struct CaseRow: View {
                         Text("Unpublished").font(.caption).foregroundStyle(Theme.oxblood)
                     }
                     Spacer()
+                    if let hit, hit.passage != nil, topScore > 0 {
+                        // Similarity at a glance, relative to the best hit on screen.
+                        Capsule().fill(Theme.slateInk.opacity(0.25)).frame(width: 56, height: 4)
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(Theme.slateInk).frame(width: 56 * CGFloat(max(0, hit.score / topScore)), height: 4)
+                            }
+                    }
                     if let hit { Text(String(format: "%.3f", hit.score)).engineLabel().monospacedDigit() }
                 }
                 .padding(.top, 2)
@@ -242,9 +283,17 @@ struct EngineStrip: View {
         Button { showingEngine = true } label: {
             HStack(alignment: .firstTextBaseline) {
                 if showsLastQuery, let last = model.lastQuery, let index = model.index {
-                    metric(String(format: "%.1f ms", last.engineMilliseconds), "engine time")
-                    metric("\(last.hits) of \(index.documents)", "opinions")
-                    metric(EngineStrip.routeName(last.route), "query")
+                    if let embedding = last.embedding {
+                        // A Meaning query has two costs, and the strip shows both.
+                        metric(String(format: "%.2f ms", embedding.milliseconds), "embed")
+                        metric(String(format: "%.1f ms", last.engineMilliseconds), "search")
+                        metric("Top \(last.hits)", "nearest")
+                    } else {
+                        metric(String(format: "%.1f ms", last.engineMilliseconds), "engine time")
+                        metric(last.route == "search" ? "Top \(last.hits)" : "\(last.hits) of \(index.documents)",
+                               last.route == "search" ? "nearest" : "opinions")
+                        metric(EngineStrip.routeName(last.route), "query")
+                    }
                 } else if let index = model.index {
                     metric("\(index.documents)", "opinions")
                     metric(ByteCountFormatter.string(fromByteCount: index.bytesOnDisk, countStyle: .file), "on disk")
@@ -289,6 +338,12 @@ struct EnginePanel: View {
                 if let last = model.lastQuery {
                     Section {
                         row("Route", last.route)
+                        if let embedding = last.embedding {
+                            row("Embed question", String(format: "%.2f ms", embedding.milliseconds))
+                            row("Question", "\(embedding.words) words, \(embedding.pieces) pieces")
+                            row("Spelled out", embedding.spelledOutWords.isEmpty ? "none" : embedding.spelledOutWords.joined(separator: ", "))
+                            row("Similarity", String(format: "%.3f best, %.3f last shown", last.topScore, last.lowScore))
+                        }
                         row("Engine time", String(format: "%.2f ms", last.engineMilliseconds))
                         row("Selection", String(format: "%.2f ms", last.selectionMilliseconds))
                         row("Round trip", String(format: "%.2f ms", last.roundTripMilliseconds))
@@ -311,6 +366,22 @@ struct EnginePanel: View {
                         row("Plan fingerprint", String(index.planFingerprint.prefix(12)))
                     }
                 }
+                if let embedder = model.embedder {
+                    Section {
+                        row("Model", "potion-retrieval-32M")
+                        row("Vectors", "\(embedder.dimensions)-dim, unit length")
+                        row("Loaded in", String(format: "%.0f ms", embedder.loadSeconds * 1000))
+                        row("Against Java vectors", embedder.fixtureWorstDelta == 0
+                            ? "identical, 25 of 25" : String(format: "max Δ %.2g", embedder.fixtureWorstDelta))
+                        if let passages = model.passages {
+                            row("Passages embedded", String(format: "%d in %.2f s", passages.count, passages.seconds))
+                        }
+                    } header: {
+                        Text("Embedder")
+                    } footer: {
+                        Text("A word the model has no entry for is spelled out from smaller pieces, down to single letters, so every word gets a vector; three or more pieces means the model does not really know it. Passages are the opinions’ paragraphs, embedded on this phone to show where a question’s meaning was found. The 25 opinion vectors in the index were computed by a Java implementation. On launch this phone embeds the same 25 texts with its own Rust implementation and compares, component by component.")
+                    }
+                }
                 Section("Privacy") {
                     Text("No network permission. The engine links no networking code.")
                         .font(.subheadline).foregroundStyle(Theme.slateInk)
@@ -322,75 +393,10 @@ struct EnginePanel: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents(UserDefaults.standard.bool(forKey: "showEngine") ? [.large] : [.medium, .large])
     }
 
     private func row(_ label: String, _ value: String) -> some View {
         LabeledContent(label) { Text(value).monospacedDigit().foregroundStyle(Theme.slateInk) }
-    }
-}
-
-struct OpinionView: View {
-    @EnvironmentObject private var model: SearchModel
-    let opinion: Opinion
-    @Binding var showingEngine: Bool
-    @State private var similar: [SearchHit]?
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(opinion.title).font(.system(.title, design: .serif).italic())
-                    Text(opinion.citation).font(.system(.body, design: .serif)).foregroundStyle(.secondary)
-                    if let panel = opinion.panel {
-                        Text(panel).font(.system(.subheadline, design: .serif)).foregroundStyle(.secondary)
-                    }
-                    if let author = opinion.authorLine {
-                        Text("Opinion by \(author)").font(.system(.subheadline, design: .serif)).foregroundStyle(.secondary)
-                    }
-                    if opinion.isUnpublished { Text("Unpublished").font(.caption).foregroundStyle(Theme.oxblood) }
-                }
-                .padding(.bottom, 16)
-
-                EngineStrip(showingEngine: $showingEngine).padding(.bottom, 20)
-
-                Text("Similar opinions").font(.system(.headline, design: .serif)).padding(.bottom, 4)
-                if let similar {
-                    ForEach(similar) { hit in
-                        NavigationLink(value: hit.id) {
-                            HStack(alignment: .firstTextBaseline) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(hit.opinion.title).font(.system(.body, design: .serif).italic())
-                                        .multilineTextAlignment(.leading)
-                                    Text(hit.opinion.citation).font(.system(.footnote, design: .serif)).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text(String(format: "%.3f", hit.score)).engineLabel().monospacedDigit()
-                            }
-                            .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        Divider()
-                    }
-                } else {
-                    ProgressView().frame(maxWidth: .infinity).padding()
-                }
-
-                Text("Opinion").font(.system(.headline, design: .serif)).padding(.top, 24).padding(.bottom, 8)
-                ForEach(Array(opinion.paragraphs.enumerated()), id: \.offset) { _, paragraph in
-                    Text(paragraph).font(.system(.body, design: .serif)).lineSpacing(5).padding(.bottom, 12)
-                }
-            }
-            .frame(maxWidth: 640, alignment: .leading)
-            .padding(.horizontal, 20).padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let url = URL(string: opinion.sourceURI) {
-                ToolbarItem(placement: .topBarTrailing) { Link("CourtListener", destination: url) }
-            }
-        }
-        .task(id: opinion.id) { similar = await model.neighbours(of: opinion) }
     }
 }

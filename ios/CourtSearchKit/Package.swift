@@ -17,10 +17,16 @@ let package = Package(
             name: "ProtomoltSearch",
             path: "../Frameworks/ProtomoltSearch.xcframework"
         ),
+        // Built by scripts/build-embedder.sh from embedder-ffi/.
+        .binaryTarget(
+            name: "CourtEmbedder",
+            path: "../Frameworks/CourtEmbedder.xcframework"
+        ),
         .target(
             name: "CourtSearchKit",
             dependencies: [
                 "ProtomoltSearch",
+                "CourtEmbedder",
                 .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             ],
             exclude: ["Generated/ENGINE_REV"],
