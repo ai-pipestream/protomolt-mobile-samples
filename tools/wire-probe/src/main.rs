@@ -94,6 +94,29 @@ fn opinion(id: &str, title: &str, body: &str, embedding: &[f32]) -> Vec<u8> {
     out
 }
 
+/// The parity report's query set and wire shape, identical on every platform:
+/// keyword = text plus the last word as a prefix (32 expansions), k 25; meaning =
+/// the embedded question, k 8; similar = opinion 0's own vector, k 6. One line,
+/// `key=row:bits,row:bits;…`, scores as raw f32 bit patterns so a single
+/// differing bit shows.
+const PARITY_KEYWORDS: [&str; 5] = ["habeas", "hab", "sentencing", "qualified immun", "maritime"];
+const PARITY_QUESTIONS: [&str; 5] = ["insurance company refused to pay the claim", "contract dispute sent to arbitration",
+    "deported despite fear of persecution", "the prison sentence was too long", "fired after complaining about discrimination"];
+
+fn parity_request(selection: search_query::Query, id: &str, k: u32) -> QueryRequest {
+    let mut request = query(selection, id);
+    request.k = k;
+    request.selection_k = k;
+    request.highlight = None;
+    request.profile = false;
+    request
+}
+
+fn parity_entry(key: &str, response: &QueryResponse) -> String {
+    let hits: Vec<String> = response.hits.iter().map(|h| format!("{}:{:08x}", h.doc_id, h.score.to_bits())).collect();
+    format!("{key}={}", hits.join(","))
+}
+
 fn query(selection: search_query::Query, id: &str) -> QueryRequest {
     // The engine serves snippets for a single lexical selection only and refuses
     // the field on any other shape: only that path carries occurrence spans.
@@ -243,6 +266,43 @@ fn main() {
         show(&format!("{label} knn of doc 0"), &r, &titles);
     };
     run(handle, "fresh");
+
+    // `--parity <model dir>`: the cross-platform report (see PARITY_KEYWORDS).
+    if let Some(at) = std::env::args().position(|a| a == "--parity") {
+        let model_dir = std::env::args().nth(at + 1).expect("model dir");
+        let model = court_embedder_ffi::StaticEmbedder::load(std::path::Path::new(&model_dir)).expect("model");
+        let mut entries = Vec::new();
+        let mut ask = |key: String, request: QueryRequest| {
+            let r: QueryResponse = call("parity", &request, |p, n| unsafe { protomolt_search_query(handle, p, n) });
+            entries.push(parity_entry(&key, &r));
+        };
+        for text in PARITY_KEYWORDS {
+            let prefix = text.split_whitespace().last().unwrap().to_string();
+            ask(format!("k:{text}"), parity_request(search_query::Query::Lexical(LexicalQuery {
+                text: text.into(), analysis: Some(body_spec()),
+                prefixes: vec![TermPrefix { prefix, max_expansions: 32 }], ..Default::default()
+            }), "lexical", 25));
+        }
+        for text in PARITY_QUESTIONS {
+            let vector = model.embed(text).expect("vector");
+            ask(format!("m:{text}"), parity_request(search_query::Query::Dense(DenseQuery { vector, ..Default::default() }), "dense", 8));
+        }
+        ask("s:0".into(), parity_request(search_query::Query::Dense(DenseQuery { vector: vector(&rows[0]), ..Default::default() }), "dense", 6));
+        println!("court-parity {}", entries.join(";"));
+    }
+
+    // `--meaning "<question>" <model dir>`: embed free text with the sample's Rust
+    // embedder and query by vector, the path the phones use for search by meaning.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(at) = args.iter().position(|a| a == "--meaning") {
+        let model = court_embedder_ffi::StaticEmbedder::load(std::path::Path::new(&args[at + 2])).expect("model");
+        for question in args[at + 1].split('|') {
+            let vector = model.embed(question).expect("question has no vector");
+            let request = query(search_query::Query::Dense(DenseQuery { vector, ..Default::default() }), "dense");
+            let r: QueryResponse = call("meaning", &request, |p, n| unsafe { protomolt_search_query(handle, p, n) });
+            show(&format!("meaning {question:?}"), &r, &titles);
+        }
+    }
 
     let closed: MobileCloseResponse = payload("close", unsafe { protomolt_search_close(handle) });
     println!("close: {}", closed.closed);
