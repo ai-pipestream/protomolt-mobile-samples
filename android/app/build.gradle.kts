@@ -36,6 +36,16 @@ android {
         }
         // court.desc and the 25-opinion fixture, shared with iOS and the probe.
         assets.srcDir(sample.resolve("fixtures"))
+        // The Phase 1 embedding model (scripts/fetch-model.sh; 123 MB, not in git),
+        // as assets under potion-retrieval-32M/. Absent, the app still builds and
+        // hides search by meaning.
+        assets.srcDir(sample.resolve("models"))
+    }
+
+    // openFd needs the asset stored, not deflated; there is nothing to gain from
+    // compressing float tables anyway.
+    androidResources {
+        noCompress += listOf("safetensors", "json")
     }
 
     buildFeatures {
