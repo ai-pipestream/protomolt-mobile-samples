@@ -7,9 +7,14 @@ Pipestream search engine, embedded in ordinary native apps — SwiftUI on iOS,
 Jetpack Compose on Android — through the engine's mobile packages.
 
 <p>
+  <img src="docs/screenshots/ios-meaning-results.png" width="240" alt="Search by meaning: each result shows the sentence nearest the question, the question's closest words, and a similarity bar">
+  <img src="docs/screenshots/ios-heatmap.png" width="240" alt="The reading view shaded sentence by sentence by closeness to the question, with arrows that step through the passages">
+  <img src="docs/screenshots/ios-engine-panel.png" width="240" alt="The engine panel: embed time, question pieces, similarity range, engine timings">
+</p>
+<p>
   <img src="docs/screenshots/ios-results-light.png" width="240" alt="Keyword results for “sentencing”: each opinion as a citation with the matching passage highlighted">
   <img src="docs/screenshots/ios-start-dark.png" width="240" alt="The start screen in dark mode, with suggested searches">
-  <img src="docs/screenshots/ios-results-dark.png" width="240" alt="Type-ahead results for “qualified immun” in dark mode">
+  <img src="docs/screenshots/ios-keyword-reading-dark.png" width="240" alt="A keyword hit's reading view in dark mode: every matched word highlighted, arrows stepping through 54 of them">
 </p>
 
 ## What it does
@@ -21,6 +26,9 @@ storage — about a second and a half on an iPhone XR — and from then on:
 | | What you do | What the engine does, on the device |
 | --- | --- | --- |
 | **Keyword search** | Type `habeas`, or just `hab` | BM25 ranking with type-ahead. Results arrive as you type, each as a citation with the passage that matched. The engine cuts those passages and marks the matched words itself; the app only draws the highlighter |
+| **Search by meaning** | Switch to Meaning and describe a situation: "insurance company refused to pay the claim" | The phone turns your words into a vector with a small embedding model it carries, and finds the nearest opinions, even ones that share no word with you |
+| **See where the meaning is** | Open a Meaning result | The opinion's text shaded sentence by sentence by closeness to your question, with a jump to the closest passage. Each result also shows its nearest sentence and which of your words pulled it in |
+| **Step through the marks** | In any opened result, the arrows at the bottom right | Previous and next highlight in reading order, with a counter: matched words in Keyword mode, shaded passages in Meaning mode. The highlighter means one thing everywhere: this is where your query landed |
 | **Similar opinions** | Open any opinion | Nearest-neighbour search over 512-dimensional embeddings: the opinions closest in *meaning*, even where they share few words |
 | **Engine panel** | Tap the slate strip under the search box | The engine's own account of the last query — its timing, how many opinions matched, the route it took — beside the index's size, vector dimensions, and build time |
 
@@ -31,9 +39,8 @@ networking code at all.
 ## Why it exists
 
 Protomolt Search's embedded runtime is designed to be the search backend of a
-mobile app, and its documentation is candid that this had been compile-checked
-but not yet run on phone hardware. This sample is that run, and a reference for
-anyone doing the same:
+mobile app. This sample runs it on real phones, an iPhone XR and a Pixel 11 Pro,
+and is a reference for anyone doing the same:
 
 - **The call sequence that works**: open → plan the index from a protobuf
   descriptor → mapped ingest → flush → query, all as protobuf bytes across the
@@ -42,7 +49,7 @@ anyone doing the same:
   which fields a shard must declare, which field an unqualified query searches,
   how analysis is bound, when snippets are served, how type-ahead interacts with
   stemming. They were learned from the engine's refusals and are written down in
-  [PLAN.md](PLAN.md).
+  [GUIDE.md](GUIDE.md), a practical guide to using the engine in your own app.
 - **One design, two platforms**: both apps implement [DESIGN.md](DESIGN.md) and
   assert the same results in their tests.
 
@@ -52,7 +59,7 @@ anyone doing the same:
 | --- | --- | --- |
 | Host reference ([tools/wire-probe](tools/wire-probe)) | passes | — |
 | iOS | passes (iPhone 17 simulator) | iPhone XR, iOS 18: first index build 2.23 s, then 1.52–1.58 s; 6.0 MB on disk; survives kill and relaunch |
-| Android | passes on device | Pixel 11 Pro Fold, Android 17: index build 2.90 s; 6.0 MB on disk |
+| Android | passes on device | Pixel 11 Pro, Android 17: index build 2.90 s; 6.0 MB on disk |
 
 The acceptance test is the same everywhere: ingest the 25 opinions; `habeas`
 returns *Forsyth v. Spencer* then *United States v. Dowdell*, with "habeas"
@@ -91,8 +98,13 @@ and `protoc`.
 
 ```bash
 scripts/build-engine.sh                 # engine → ios/Frameworks, about 5 minutes, once
+scripts/build-embedder.sh ios           # the sample's embedder → ios/Frameworks, seconds
+scripts/fetch-model.sh                  # optional: 123 MB model, enables search by meaning
 cd ios && xcodegen generate && open CourtSearch.xcodeproj
 ```
+
+Run `xcodegen generate` after fetching or removing the model: the project bundles
+the model folder only when it exists.
 
 Run the `CourtSearch` scheme. For a device, pick your team under Signing &
 Capabilities. Launch arguments: `-query habeas` opens on results, and
@@ -103,8 +115,10 @@ the `CourtSearchKit` scheme (⌘U).
 
 ```bash
 scripts/build-engine-android.sh         # engine → android/libs, about 2 minutes, once
+scripts/build-embedder.sh android       # the sample's embedder → jniLibs, seconds
+scripts/fetch-model.sh                  # optional: 123 MB model, enables search by meaning
 cd android && ./gradlew :app:installDebug
-./gradlew :app:connectedDebugAndroidTest    # the acceptance test, on a device or emulator
+../scripts/test-android.sh              # the acceptance tests, on a device or emulator
 ```
 
 `adb shell am start -n ai.pipestream.samples.courtsearch/.MainActivity --es query habeas`
@@ -120,26 +134,88 @@ cd tools/wire-probe && cargo run -- ../../fixtures/court_opinions_potion512.ndjs
 
 ```
 README.md      you are here
-PLAN.md        the engineering plan: what was verified, the engine rules, open questions
+GUIDE.md       using the engine in your own app: the calls, the rules, search by meaning, what to expect
 DESIGN.md      the UX spec both apps implement
 proto/         court.proto — the opinion schema every platform plans its index from
 fixtures/      25 opinions with metadata and precomputed embeddings; court.desc
-tools/wire-probe/   host-side Rust reference for the engine's mobile byte ABI
+tools/wire-probe/   host-side Rust reference for the engine's mobile byte ABI (also the macOS side of the parity report)
+tools/passages_reference.py, parity_compare.py   the text-cutting spec; the cross-platform diff
+embedder-ffi/  the sample's embedder: C and JNI over protomolt-embedder, with the conformance test
 ios/           CourtSearchKit (Swift package: engine wrapper + index) and the app
 android/       the Android app (Kotlin, Jetpack Compose)
 design/        the app icon master
 scripts/       build the engine per platform; regenerate protobuf types, fixture, icons
 ```
 
-## What comes next
+## The embedder, and a result worth knowing
 
-**Search by meaning, typed by you.** Today "similar opinions" starts from an
-opinion already in the index, because the phone has no way to turn *new* text
-into an embedding; the 25 vectors were computed ahead of time. The next phase
-puts a small static-embedding model on the device, so "police searched the car
-without a warrant" finds the right opinions even if none uses those words. It
-also lets us check that the phone computes the same vectors the laptop did — the
-first evidence that two independent implementations of the model agree.
+Protomolt Search's embedded runtime deliberately ships no embedder: vectors are
+the caller's job. So the sample carries its own, [`embedder-ffi/`](embedder-ffi):
+a small C and JNI surface over the engine project's Rust `protomolt-embedder`.
+
+**The model** is [`minishlab/potion-retrieval-32M`](https://huggingface.co/minishlab/potion-retrieval-32M)
+(MIT), a [Model2Vec](https://github.com/MinishLab/model2vec) *static* embedding
+model: 63,091 WordPiece tokens × 512 dimensions, 123 MB. Static means there is no
+neural network to run. Embedding a text is a table lookup per word-piece, a mean,
+and a normalization, which is why a question embeds in about 0.03 ms on a phone,
+why all 4,075 sentences of the corpus can be embedded on the device for the
+heatmap, and why two implementations can agree to the last bit. The price is that
+word order is ignored: it is a bag of word-pieces, a fair trade for an on-device
+sample and well short of a full transformer in ranking quality. English only.
+
+The model is a file, not code. `scripts/fetch-model.sh` downloads it (it is not in
+git), and the build copies it into the app package: on iOS it is mapped straight
+from the bundle; on Android, where an APK asset is not a file, it is copied into
+app storage on first launch. The apps never download anything at run time, which
+is what keeps the no-network claim true. Any Model2Vec WordPiece model in the same
+layout would work; this one was chosen because it is the engine project's default
+and publicly downloadable.
+
+The 25 opinion vectors in the index were computed by a *different*
+implementation, the Java one. On every launch each phone embeds the same 25
+texts with the Rust one and compares. They are **identical in every component**
+— on the host, on the iOS simulator, on an iPhone XR, and on a Pixel 11 Pro.
+Two independent
+implementations of the model agree bit for bit, which is what lets a phone embed
+queries against an index it did not build. The engine panel shows the check.
+
+## Same answers everywhere? Almost, and the exception is the interesting part
+
+Every platform can print a parity report: a fixed set of keyword, meaning, and
+similarity queries, with every score as its raw 32-bit pattern, so one differing
+bit shows (`tools/parity_compare.py`).
+
+| | `dotprod` | `i8mm` | Keyword (BM25) scores | Dense-vector scores |
+| --- | --- | --- | --- | --- |
+| macOS, Apple M2 (the probe) | yes | yes | reference | reference |
+| iOS simulator, Apple M2 | yes | yes | bit-identical | bit-identical |
+| Pixel 11 Pro | yes | yes | bit-identical | bit-identical |
+| iPhone XR, Apple A12 (2018) | **no** | **no** | bit-identical | **differ by up to 0.0032** |
+
+Three platforms agree on every bit of every score. The iPhone XR agrees on every
+keyword score, and its embedder produces the same vectors as everyone else's, but
+its dense-vector scores drift by up to 0.0032, which is enough to swap neighbours
+in 4 of 11 rankings (two opinions at 0.7135 and 0.7111 come back as 0.7142 and
+0.7143).
+
+The cause is visible in the vector engine's source: it picks its kernels at run
+time from two CPU features, `dotprod` and `i8mm`, and the two kernels do not
+round alike. Each app prints what its CPU offers, and the XR's A12 is the only
+chip here that lacks both, so it is the only one on the fallback path. Both
+answers are sound approximations of the exact cosines (0.7136 and 0.7106, from
+Lucene); they are simply not the *same* approximation.
+
+Why it matters: the engine treats vector score identity as a contract, and its
+proposed device-shard design compares scores computed on different phones. Plenty
+of phones in use predate these instructions. For a single device nothing is wrong.
+Across devices, identical scores cannot be assumed until the fallback kernel is
+made to round like the fast one, or scores are compared at a coarser grain.
+
+The embedder library is part of both apps and is built by
+`scripts/build-embedder.sh` (seconds). The *model* it reads is optional: 123 MB,
+not in git, fetched by `scripts/fetch-model.sh`. Without the model both apps still
+build and run with keyword search and similar opinions; the Meaning switch, the
+heatmap, and the conformance check simply are not there.
 
 This sample is not the collaborative, device-owned-shard search described in the
 engine's `docs/device-shards.md`; that design depends on this working first.
@@ -149,9 +225,10 @@ engine's `docs/device-shards.md`; that design depends on this working first.
 - **Opinions**: U.S. federal court opinions, in the public domain, from
   [CourtListener](https://www.courtlistener.com/) by the Free Law Project. Each
   opinion in the app links back to its CourtListener page.
-- **Embeddings**: computed with
+- **Embedding model**:
   [`minishlab/potion-retrieval-32M`](https://huggingface.co/minishlab/potion-retrieval-32M)
-  (MIT). The model itself is not in this repository; only the 25 resulting
-  vectors are.
+  (MIT), described above. It is not in this repository: the 25 opinion vectors in
+  the fixture are, and `scripts/fetch-model.sh` downloads the model itself for
+  search by meaning.
 - **Code**: MIT, the same license as the engine's embedded package. See
   [LICENSE](LICENSE).

@@ -35,13 +35,27 @@ extension Opinion {
 
     public var isUnpublished: Bool { status.caseInsensitiveCompare("Unpublished") == .orderedSame }
 
-    /// The opinion text as reflowed paragraphs: the source is hard-wrapped and
-    /// centred with spaces, which reads as noise on a phone.
+    /// The opinion text as real paragraphs. The source is a double-spaced PDF
+    /// extraction: every LINE is followed by a blank line, so blank lines mean
+    /// nothing, and a paragraph starts where a line is indented six spaces or
+    /// more. Lines are joined and their spacing (the text is also justified with
+    /// runs of spaces) collapsed. Every platform uses this exact rule, because the
+    /// heatmap's passage vectors depend on where paragraphs begin and end.
     public var paragraphs: [String] {
-        body.components(separatedBy: "\n")
-            .split(whereSeparator: { $0.trimmingCharacters(in: .whitespaces).isEmpty })
-            .map { $0.joined(separator: " ").collapsingWhitespace }
-            .filter { !$0.isEmpty }
+        var paragraphs: [String] = []
+        var current: [String] = []
+        for line in body.split(separator: "\n", omittingEmptySubsequences: false) {
+            let text = String(line).collapsingWhitespace
+            // Blank lines, and the page markers ("-7-") the extraction left in the flow.
+            if text.isEmpty || text.range(of: #"^-\s?\d+\s?-$"#, options: .regularExpression) != nil { continue }
+            if line.prefix(while: { $0 == " " }).count >= 6, !current.isEmpty {
+                paragraphs.append(current.joined(separator: " "))
+                current = []
+            }
+            current.append(text)
+        }
+        if !current.isEmpty { paragraphs.append(current.joined(separator: " ")) }
+        return paragraphs
     }
 }
 

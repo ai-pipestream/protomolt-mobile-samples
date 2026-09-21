@@ -16,10 +16,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val launchQuery = intent.getStringExtra("query")
         val resetIndex = intent.getBooleanExtra("resetIndex", false)
+        val launchMode = intent.getStringExtra("mode")
+        val launchOpen = intent.getIntExtra("open", 0).takeIf { it > 0 }
+        val jump = intent.getBooleanExtra("jump", false)
+        val parity = intent.getBooleanExtra("parity", false)
         setContent {
             CourtSearchTheme {
-                LaunchedEffect(Unit) { model.open(applicationContext, launchQuery, resetIndex) }
-                CourtSearchApp(model)
+                LaunchedEffect(Unit) { model.open(applicationContext, launchQuery, resetIndex, launchMode, launchOpen, parity) }
+                CourtSearchApp(model, jumpOnOpen = jump)
             }
         }
     }
