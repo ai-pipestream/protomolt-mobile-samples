@@ -1,0 +1,4 @@
+module CourtEmbedder {
+    header "court_embedder.h"
+    export *
+}
